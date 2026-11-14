@@ -1,11 +1,11 @@
 // Keeps the app shell available offline. Weather data is never cached here;
 // the app stores its own last readings.
-const CACHE = 'backyard-shell-v12';
+const CACHE = 'backyard-shell-v13';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/charts.js', 'js/demo.js', 'js/units.js', 'js/wu.js', 'js/reorder.js', 'js/conditions.js', 'js/sky.js', 'js/dogs.js', 'js/sprites.js',
   'fonts/manrope.woff2',
-  'icons/icon-192.png', 'icons/apple-touch-icon.png',
+  'icons/icon-192.png?v=2', 'icons/apple-touch-icon.png?v=2',
 ];
 
 self.addEventListener('install', e => {
