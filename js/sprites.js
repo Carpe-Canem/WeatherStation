@@ -96,7 +96,7 @@ function ziggy(p) {
   o.save(); o.translate(0.5, -2.5); pivot(50, 18, p.head || 0);
   P([[44, 23], [50, 10], [56, 12], [51, 27]], B); E(55, 11, 5.5, 5, B); E(54, 7.4, 3.6, 0.9, H);
   P([[57, 8.8], [66.5, 11.6], [67.3, 14], [66.4, 15.3], [57, 15.6]], B);
-  P([[54, 6.4], [56, 6.4], [66, 11.9], [65, 12.8], [56, 10]], W); P([[58, 14.2], [66, 14.4], [58, 16.2]], W);
+  P([[59.5, 14.8], [66.2, 14.6], [64.6, 16.2], [59, 16.4]], W); // white only on the chin and lower lip
   E(55.6, 8.6, 1.1, 0.75, T); E(57, 13.8, 1.8, 1.3, T); eye(57.2, 10.3, 1.05, '#3b2412', p); E(66.9, 12.4, 1.4, 1.25, '#0d0d0d');
   if (p.mouth || p.tongue) P([[60, 15.4], [63.5, 15.4], [62.2, 19.3]], '#e06878');
   o.save(); pivot(53, 6.5, p.ear || 0); P([[50.8, 7.6], [53.6, 4.3], [57.3, 6.6], [58.6, 9.6], [55.4, 9.1]], B); o.restore();
@@ -164,6 +164,14 @@ function minnie(p) {
   o.fillStyle = S; o.fillRect(52, 16.4, 1, 1.6); o.fillRect(54.2, 16, 1, 1.6); o.fillRect(56, 15.4, 1, 1.3);
   o.fillStyle = W; o.fillRect(45, -0.2, 1, 1); o.fillRect(46.6, 0, 1, 1); o.fillRect(42.4, 22.5, 1, 1);
   o.restore();
+}
+
+/** Where Ziggy's mouth is in his drawing for a pose (unscaled, before PAD), following the same head
+ *  offset and tilt as ziggy() and the body bob, so a carried ball sits in his mouth. */
+export function mouthPoint(p) {
+  const a = p.head || 0, dx = 63.5 - 50, dy = 15 - 18;
+  const x = 50 + dx * Math.cos(a) - dy * Math.sin(a), y = 18 + dx * Math.sin(a) + dy * Math.cos(a);
+  return [x + 0.5, y - 2.5 + (p.bob || 0) + (p.y || 0)];
 }
 
 const DRAW = { z: ziggy, f: frank, m: minnie };

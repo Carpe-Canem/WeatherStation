@@ -7,7 +7,7 @@
 // Debug: ?dogspeed=8 speeds everything up; ?dogact=zoomies forces an activity for every dog that has it;
 // ?dogact=ball throws a tennis ball every few seconds.
 
-import { render, box, NOSE, SIZE } from './sprites.js';
+import { render, box, NOSE, SIZE, mouthPoint } from './sprites.js';
 
 const q = new URLSearchParams(location.search);
 const SPEED = Math.max(0.1, +q.get('dogspeed') || 1);
@@ -355,8 +355,10 @@ function moveBall(dt, S) {
   if (b.held && b.held.actName !== 'proud') { b.held = null; b.vx = 0; b.h = Math.max(0, gy - b.y); b.fade = 1.5; } // interrupted: he drops it
   if (b.held) {
     const z = b.held;
-    b.x = z.sx + z.facing * noseOff(z) * 0.85;
-    b.y = z.sy - (44 - NOSE.z[1] - 6 - (z.pose?.y || 0)) * SIZE.z * K + 8;
+    // Centred on his mouth (b.y is the ball's bottom; it is 16px tall).
+    const [mx, my] = mouthPoint(z.pose || {});
+    b.x = z.sx + z.facing * ((mx + (z.pose?.x || 0)) * SIZE.z - z.box.cx) * K;
+    b.y = z.sy - (z.box.footY - (my + 8) * SIZE.z) * K + 8;
   } else {
     b.age += dt;
     b.vh -= 900 * dt;
