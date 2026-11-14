@@ -26,7 +26,8 @@ settings.preview = 'live'; // the weather preview is only for this visit; never 
 
 // A share link (?station=ID&key=KEY) connects this device to that station without typing anything.
 // It is applied once per link, so choosing demo data later sticks. The parameters stay in the address so
-// a bookmark or Home Screen icon made from this page keeps them; see linkManifest().
+// a bookmark or Home Screen icon made from this page keeps them (index.html leaves out the manifest on
+// these visits, so iOS saves this exact address rather than the manifest's start_url).
 const link = new URLSearchParams(location.search);
 const linked = link.get('station') && link.get('key')
   ? { stationId: link.get('station').trim().toUpperCase(), apiKey: link.get('key').trim() } : null;
@@ -36,20 +37,6 @@ if (linked && settings.link !== `${linked.stationId}|${linked.apiKey}`) {
 }
 const shareUrl = () => `${location.origin}${location.pathname}?station=${encodeURIComponent(settings.stationId)}&key=${encodeURIComponent(settings.apiKey)}`;
 
-// An app added to the iPhone Home Screen keeps its own storage, apart from Safari's, and opens the
-// manifest's start_url. When the page was opened from a share link, point start_url at that link so the
-// installed app connects too.
-function linkManifest() {
-  if (!linked) return;
-  const abs = u => new URL(u, location.href).href;
-  fetch('manifest.webmanifest').then(r => r.json()).then(m => {
-    m.start_url = location.href;
-    m.scope = abs(m.scope || './');
-    m.icons = (m.icons || []).map(i => ({ ...i, src: abs(i.src) }));
-    const url = URL.createObjectURL(new Blob([JSON.stringify(m)], { type: 'application/manifest+json' }));
-    document.querySelector('link[rel="manifest"]')?.setAttribute('href', url);
-  }).catch(() => {});
-}
 const DATA_KEYS = ['current', 'today', 'hourly', 'daily', 'forecast', 'sky'];
 const emptyData = () => ({ current: null, today: [], hourly: [], daily: [], forecast: [], sky: null });
 const state = {
@@ -591,7 +578,6 @@ sortable($('#view-now'), { item: '.tile', onDrop: ids => saveOrder('now', ids) }
 sortable($('#view-trends'), { item: '.chart-card', handle: 'header', onDrop: ids => saveOrder('trends', ids) });
 addEventListener('pointerup', () => setTimeout(() => { if (renderPending) render(); }));
 
-linkManifest();
 initSky();
 initDogs({ isDragging });
 go('now');
