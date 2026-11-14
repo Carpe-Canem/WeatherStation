@@ -6,8 +6,8 @@
 }
 
 /* Pixel sky: frosted cards over a pixel-art sky that follows the weather and the time of day.
-   Night (dark) applies with data-theme="dark", or with the system setting unless data-theme="light".
-   In Auto mode app.js sets data-theme from sunrise and sunset at the station. */
+   Night (dark) applies with data-theme="dark"; app.js sets it from sunrise and sunset at the station.
+   Before the script runs, the system setting stands in. */
 :root {
   color-scheme: light;
   --page: #9ed3f0;

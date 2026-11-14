@@ -18,13 +18,11 @@
 <link rel="stylesheet" href="styles.css">
 <script>
   // Pick day or night before first paint so the page never flashes. Mirrors updateWorld() in app.js:
-  // Day and Night pin it; Auto uses sunrise and sunset at the last known station position.
+  // Night runs from 40 minutes after sunset to 40 minutes before sunrise at the last known station position.
   try {
     const s = JSON.parse(localStorage.getItem('backyard.settings.v1')) || {}, now = new Date();
     let night;
-    if (s.theme === 'light') night = false;
-    else if (s.theme === 'dark') night = true;
-    else if (s.loc) {
+    if (s.loc) {
       const base = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
       const g = 2 * Math.PI / 365 * (Math.round((base - Date.UTC(now.getFullYear(), 0, 0)) / 864e5) - 1);
       const dec = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);

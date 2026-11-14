@@ -126,6 +126,18 @@ export async function forecast({ apiKey }, lat, lon) {
       pop: dp.precipChance?.[k] ?? null,
       icon: dp.iconCode?.[k] ?? null,
       phrase: dp.wxPhraseShort?.[k] ?? '',
+      cloud: dp.cloudCover?.[k] ?? null,
     };
   });
+}
+
+// The latest official observation near the station (usually the nearest airport, updated hourly):
+// sky cover and weather such as drizzle, which a home station has no sensor for.
+export async function sky({ apiKey }, lat, lon) {
+  const j = await get('/v3/wx/observations/current', {
+    geocode: `${lat.toFixed(2)},${lon.toFixed(2)}`,
+    format: 'json', units: 'e', language: 'en-US', apiKey,
+  });
+  if (!j || j.iconCode == null) return null;
+  return { t: (j.validTimeUtc ?? 0) * 1000, icon: j.iconCode, phrase: j.wxPhraseLong || '', cover: j.cloudCoverPhrase || '' };
 }

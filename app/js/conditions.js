@@ -21,6 +21,33 @@ export function sunTimes(lat, lon, t = Date.now()) {
   return { rise: base + (noon - 4 * ha) * MIN, set: base + (noon + 4 * ha) * MIN };
 }
 
+/** Sun elevation in degrees above the horizon. NOAA approximation. */
+export function sunElevation(lat, lon, t = Date.now()) {
+  const d = new Date(t);
+  const doy = Math.round((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(d.getUTCFullYear(), 0, 0)) / 864e5);
+  const g = (2 * Math.PI / 365) * (doy - 1 + (d.getUTCHours() - 12) / 24);
+  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g)
+    + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g)
+    - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const mins = d.getUTCHours() * 60 + d.getUTCMinutes() + eqt + 4 * lon;
+  const ha = ((mins / 4 - 180) * Math.PI) / 180, r = (lat * Math.PI) / 180;
+  const cosZ = Math.sin(r) * Math.sin(decl) + Math.cos(r) * Math.cos(decl) * Math.cos(ha);
+  return 90 - (Math.acos(Math.max(-1, Math.min(1, cosZ))) * 180) / Math.PI;
+}
+
+// Weather Company icon codes: how much of the sky is cloud, and what is falling.
+const ICON_CLOUD = { 26: 1, 27: 0.85, 28: 0.85, 29: 0.5, 30: 0.5, 33: 0.2, 34: 0.2, 31: 0.05, 32: 0.05, 36: 0.05, 19: 0.6, 20: 0.95, 21: 0.6, 22: 0.6 };
+const WET = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 35, 37, 38, 39, 40, 41, 42, 43, 45, 46, 47];
+const SNOWY = [5, 7, 13, 14, 15, 16, 41, 42, 43, 46];
+
+/** What the official observation says is falling, as a rain rate (in/h) for drawing, or 0. */
+function obsPrecip(o) {
+  if (!WET.includes(o.icon)) return 0;
+  const p = o.phrase.toLowerCase();
+  return /heavy/.test(p) ? 0.4 : /drizzle|light|flurr/.test(p) ? 0.03 : 0.12;
+}
+
 /** dawn | day | dusk | night for a time, from the station's position; falls back to the clock. */
 export function phaseAt(lat, lon, t = Date.now()) {
   const s = lat != null && lon != null ? sunTimes(lat, lon, t) : null;
@@ -46,12 +73,38 @@ export const PREVIEWS = [
  * @param loc      { lat, lon } or null
  * @param preview  one of PREVIEWS ids
  */
-export function conditions(c, dp, loc, preview = 'live') {
+export function conditions(c, dp, loc, preview = 'live', extra = {}) {
   const k = {
     phase: phaseAt(loc?.lat, loc?.lon), temp: c?.temp ?? 60, rainRate: c?.rainRate ?? 0, rainToday: c?.rain ?? 0,
     wind: c?.wind ?? 0, gust: c?.gust ?? c?.wind ?? 0, uv: c?.uv ?? 0, humidity: c?.humidity ?? 50,
     dewpt: c?.dewpt ?? null, falling: dp != null && dp <= -0.06,
   };
+  // Cloud cover, 0 (clear) to 1 (overcast), from the best source to hand; null when unknown.
+  let cloud = null, fogObs = false;
+  if (preview === 'live') {
+    // 1. The station's own solar sensor against a clear sky at this sun height: the most local measure.
+    const el = loc ? sunElevation(loc.lat, loc.lon, c?.t ?? Date.now()) : -90;
+    if (c?.solar != null && el > 12) {
+      const s = Math.sin((el * Math.PI) / 180), clear = 1098 * s * Math.exp(-0.057 / s);
+      cloud = Math.max(0.05, Math.min(1, (0.85 - c.solar / clear) / 0.6));
+    }
+    // 2. The official observation: sky cover when the sun is too low to judge, and drizzle or rain
+    // too light for the station's rain gauge to register.
+    const o = extra.sky;
+    if (o && Date.now() - o.t < 2 * 36e5) {
+      if (cloud == null && ICON_CLOUD[o.icon] != null) cloud = ICON_CLOUD[o.icon];
+      const p = obsPrecip(o);
+      if (p && !k.rainRate) {
+        k.rainRate = p;
+        if (SNOWY.includes(o.icon) && k.temp > 34) k.temp = 34;
+      }
+      if (p) cloud = Math.max(cloud ?? 0, 0.9);
+      fogObs = o.icon === 20;
+    }
+    // 3. The forecast's cloud cover for this part of the day.
+    const f = extra.forecast?.[0]?.cloud;
+    if (cloud == null && f != null) cloud = f / 100;
+  }
   const set = o => Object.assign(k, o);
   switch (preview) {
     case 'sunny': set({ phase: 'day', temp: 72, rainRate: 0, rainToday: 0, wind: 4, gust: 7, uv: 7, humidity: 40, falling: false }); break;
@@ -74,8 +127,14 @@ export function conditions(c, dp, loc, preview = 'live') {
   // Asphalt in full sun runs far hotter than the air; past roughly 125°F it can burn paws.
   k.hotGround = !k.night && (k.temp >= 85 || (k.temp >= 77 && k.uv >= 6));
   k.hot = k.temp >= 85 || k.hotGround;
-  k.sunny = !k.night && !k.raining && k.uv >= 6;
-  k.fog = k.humidity >= 97 && k.dewpt != null && k.temp - k.dewpt < 2;
-  k.cloud = k.raining ? 1 : k.falling ? 0.8 : k.humidity >= 90 ? 0.7 : k.sunny ? 0.15 : 0.4;
+  k.fog = fogObs || (k.humidity >= 97 && k.dewpt != null && k.temp - k.dewpt < 2);
+  if (cloud != null) {
+    k.cloud = k.raining ? Math.max(0.9, cloud) : cloud;
+    k.sunny = !k.night && !k.raining && k.cloud < 0.35 && k.uv >= 5;
+  } else {
+    // No sky report (previews, or nothing fetched yet): guess from the station alone.
+    k.sunny = !k.night && !k.raining && k.uv >= 6;
+    k.cloud = k.raining ? 1 : k.falling ? 0.8 : k.humidity >= 90 ? 0.7 : k.sunny ? 0.15 : 0.4;
+  }
   return k;
 }
