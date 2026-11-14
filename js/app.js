@@ -314,7 +314,7 @@ function renderNow() {
       <div class="fday" title="${esc(d.phrase)}">
         <div class="dow">${esc(d.dow)}</div>
         <div class="ficon" role="img" aria-label="${esc(d.phrase)}">${forecastIcon(d.icon)}</div>
-        <div class="fhi">${u.fmt('temp', d.hi)}</div>
+        <div class="fhi">${u.fmt('temp', d.hi ?? (d.dow === 'Today' ? hi?.v : null))}</div>
         <div class="flo">${u.fmt('temp', d.lo)}</div>
         <div class="fpop">${d.pop != null ? `${d.pop}% rain` : ''}</div>
       </div>`).join('')}
