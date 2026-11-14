@@ -4,9 +4,10 @@
 //
 // Dogs stand on "surfaces": the top of the tab bar (the ground), the top edges of tiles and cards,
 // and the big temperature. Surfaces are looked up afresh every frame, because the views re-render.
-// Debug: ?dogspeed=8 speeds everything up; ?dogact=zoomies forces an activity for every dog that has it.
+// Debug: ?dogspeed=8 speeds everything up; ?dogact=zoomies forces an activity for every dog that has it;
+// ?dogact=ball throws a tennis ball every few seconds.
 
-import { render, box } from './sprites.js';
+import { render, box, NOSE, SIZE } from './sprites.js';
 
 const q = new URLSearchParams(location.search);
 const SPEED = Math.max(0.1, +q.get('dogspeed') || 1);
@@ -20,12 +21,12 @@ const pick = list => {
   return list[0][0];
 };
 
-let root, opts = {}, dogs = [], k = null, raf = 0, still = false, lastDraw = 0, suppressClick = 0, tap = null, scrolled = true;
+let root, opts = {}, dogs = [], ball = null, k = null, raf = 0, still = false, lastDraw = 0, suppressClick = 0, tap = null, scrolled = true;
 
 const DEFS = [
   { k: 'z', name: 'Ziggy', walk: 52, run: 190, start: ['ground', 0.22] },
   { k: 'f', name: 'Frank', walk: 34, run: 90, start: ['ground', 0.72] },
-  { k: 'm', name: 'Minnie', walk: 28, run: 70, start: ['hero', 0.75] },
+  { k: 'm', name: 'Minnie', walk: 28, run: 70, start: ['ground', 0.5] },
 ];
 
 // ---------- surfaces ----------
@@ -34,7 +35,9 @@ function surfaces() {
   const out = new Map();
   const tabs = document.querySelector('.tabs')?.getBoundingClientRect();
   const groundY = tabs ? tabs.top : innerHeight;
-  const topY = (document.querySelector('.top')?.getBoundingClientRect().bottom || 0) + 46;
+  // Surfaces need room above them for a dog (about 100px tall) and its speech bubble, below the header.
+  const hdr = document.querySelector('.top')?.getBoundingClientRect().bottom || 0, topY = hdr + 140;
+  out.ceil = hdr + 105; // no jump arc takes a dog's feet higher than this
   out.set('ground', { l: 0, r: innerWidth, y: groundY, ground: true });
   const view = document.querySelector('.view:not([hidden])');
   if (!view) return out;
@@ -101,6 +104,12 @@ const ACTS = {
   // Taps
   come: d => needGround(d, 'come') || (walkTo(d, d.tapFx ?? 0.5), { dur: 10, untilArrive: 1 }),
   ignore: d => { d.facing *= -1; return { dur: 2, pose: () => ({ sit: 1, head: -0.2 }) }; },
+  // Frank: furious barking, with a lunge on every woof.
+  angrybark: () => ({ dur: 2.6, bubble: 'WOOF! WOOF!', mood: 'angry', fx: 'anger', pose: (d, u, t) => { const m = Math.floor(t * 6) % 2; return { mouth: m, head: -0.14 * m, ear: -0.4, x: m * 1.5 }; } }),
+  // Ziggy: delighted yips, bouncing on the spot.
+  happybark: () => ({ dur: 2.4, bubble: 'Woof! Woof!', mood: 'happy', fx: 'joy', pose: (d, u, t) => ({ mouth: 1, head: -0.22 - 0.08 * (Math.floor(t * 5) % 2), y: -Math.abs(Math.sin(t * 9)) * 4, ear: 0.2 }) }),
+  // Minnie: a low growl, lip curled, ears pinned back.
+  growl: d => { d.queue.push('ignore'); return { dur: 2.4, bubble: 'grrrrr…', mood: 'growl', fx: 'growl', pose: (dd, u, t) => ({ head: 0.12, ear: -0.7, snarl: 1, x: Math.sin(t * 50) * 0.5 }) }; },
 };
 
 // ---------- the ruckus ----------
@@ -272,18 +281,132 @@ function choose(d) {
   d.actName = name;
   d.act = ACTS[name](d) || { dur: 2 };
   d.actT = 0;
-  if (d.act.bubble) say(d, d.act.bubble, Math.min(d.act.dur, 3));
+  if (d.act.bubble) say(d, d.act.bubble, Math.min(d.act.dur, 3), d.act.mood);
   else { d.bubble.hidden = true; clearTimeout(d.bubbleTimer); }
+  showFx(d, d.act.fx);
 }
 
 // ---------- per-frame ----------
 
-function say(d, text, secs) {
+function say(d, text, secs, mood = '') {
   d.bubble.textContent = text;
+  d.bubble.className = `bubble ${mood}`;
   d.bubble.hidden = false;
   clearTimeout(d.bubbleTimer);
   d.bubbleTimer = setTimeout(() => { d.bubble.hidden = true; }, secs * 1000);
 }
+
+// ---------- accents ----------
+// Little pixel marks around a dog's head: anger veins, hearts, growl lines. Offsets are screen pixels
+// from the nose for a dog facing right; the whole group is mirrored when it faces left.
+
+/** Pixel art as an SVG: one row string per line, '.' for empty; col is a colour, or a map of colour per letter. */
+const pix = (rows, col, z = 3) => {
+  let r = '';
+  rows.forEach((row, y) => [...row].forEach((c, x) => {
+    if (c !== '.') r += `<rect x="${x}" y="${y}" width="1" height="1"${typeof col === 'object' ? ` fill="${col[c]}"` : ''}/>`;
+  }));
+  return `<svg viewBox="0 0 ${rows[0].length} ${rows.length}" width="${rows[0].length * z}" height="${rows.length * z}"${typeof col === 'string' ? ` fill="${col}"` : ''} shape-rendering="crispEdges" style="display:block">${r}</svg>`;
+};
+const VEIN = pix(['.xx.xx.', 'x.x.x.x', 'xx...xx', '.......', 'xx...xx', 'x.x.x.x', '.xx.xx.'], '#e3342f');
+const HEART = pix(['.xx.xx.', 'xxxxxxx', 'xxxxxxx', '.xxxxx.', '..xxx..', '...x...'], '#ff6b8f');
+const ZIG = pix(['x...x...', '.x.x.x.x', '..x...x.'], 'currentColor');
+const FX = {
+  anger: [[VEIN, -26, -38, 0], [VEIN, -6, -46, 0.22], [VEIN, -42, -24, 0.4]],
+  joy: [[HEART, -28, -32, 0], [HEART, -10, -40, 0.4], [HEART, -42, -22, 0.8]],
+  growl: [[ZIG, 6, -6, 0], [ZIG, 9, 4, 0.12], [ZIG, 5, 14, 0.24]],
+};
+function showFx(d, kind) {
+  if (!kind || still) { d.fx_.hidden = true; return; }
+  d.fx_.className = `fx ${kind}`;
+  d.fx_.innerHTML = FX[kind].map(([svg, x, y, delay]) => `<i style="left:${x}px;top:${y}px;animation-delay:${delay}s">${svg}</i>`).join('');
+  d.fx_.hidden = false;
+}
+
+// ---------- the tennis ball ----------
+// Now and then a ball bounces in from one side and all three chase it. Ziggy, the fastest,
+// sometimes catches it and prances about with it; otherwise it rolls off the other side.
+
+const BALL_GAP = [150, 360]; // seconds between balls, at normal speed
+let nextBall = FORCE === 'ball' ? 2 : rnd(40, 110);
+const BALL_PX = pix(['..oooo..', '.oyyywo.', 'oyyyyywo', 'oyyyywyo', 'oywwwyyo', 'owyyyyso', '.oyssso.', '..oooo..'],
+  { o: '#3d4a14', y: '#d5e83f', s: '#aabd2a', w: '#f7f7ea' }, K);
+const noseOff = d => (NOSE[d.def.k][0] * SIZE[d.def.k] - d.box.cx) * K;
+
+function ballReady() {
+  if (FORCE === 'ball') return clock > nextBall;
+  return clock > nextBall && !still && !k.night && !k.snowing
+    && !dogs.some(d => ['pester', 'rescue', 'flee', 'flinch'].includes(d.actName));
+}
+
+function throwBall() {
+  const fromLeft = Math.random() < 0.5;
+  const el = document.createElement('span');
+  el.className = 'ball';
+  el.innerHTML = BALL_PX;
+  root.append(el);
+  ball = { el, x: fromLeft ? -20 : innerWidth + 20, vx: (fromLeft ? 1 : -1) * rnd(140, 185), h: rnd(90, 150), vh: 0, spin: 0, held: null, gone: false, age: 0, catchable: Math.random() < 0.6 };
+  nextBall = clock + (FORCE === 'ball' ? 12 : rnd(...BALL_GAP));
+  dogs.forEach((d, i) => setTimeout(() => { if (ball && !ball.held) interrupt(d, 'fetch'); }, [0, 350, 700][i] / SPEED));
+}
+
+function moveBall(dt, S) {
+  const b = ball, gy = S.get('ground').y;
+  if (b.held && b.held.actName !== 'proud') { b.held = null; b.vx = 0; b.h = Math.max(0, gy - b.y); b.fade = 1.5; } // interrupted: he drops it
+  if (b.held) {
+    const z = b.held;
+    b.x = z.sx + z.facing * noseOff(z) * 0.85;
+    b.y = z.sy - (44 - NOSE.z[1] - 6 - (z.pose?.y || 0)) * SIZE.z * K + 8;
+  } else {
+    b.age += dt;
+    b.vh -= 900 * dt;
+    b.h += b.vh * dt;
+    if (b.h <= 0) { b.h = 0; b.vh = Math.abs(b.vh) * 0.68; if (b.vh < 40) b.vh = 0; }
+    b.x += b.vx * dt;
+    b.spin += b.vx * dt;
+    b.y = gy - b.h;
+    if (b.x < -40 || b.x > innerWidth + 40) b.gone = true;
+    // Ziggy snaps it up if his nose gets to it while it's low, after a proper chase (and not every time).
+    const z = dogs[Z];
+    if (!b.gone && !b.fade && b.catchable && b.age > 2.5 && z.actName === 'fetch' && !z.jump && z.surf === 'ground' && b.h < 22
+      && Math.abs(z.sx + z.facing * noseOff(z) - b.x) < 14) {
+      b.held = z;
+      interrupt(z, 'proud');
+      for (const d of dogs) if (d !== z && d.actName === 'fetch') interrupt(d, d.def.k === 'f' ? 'grumble' : 'ignore');
+    }
+  }
+  if (b.fade) {
+    b.fade -= dt;
+    b.el.style.opacity = Math.max(0, b.fade / 1.5);
+    if (b.fade <= 0) b.gone = true;
+  }
+  b.el.style.transform = `translate(${Math.round(b.x - 8)}px, ${Math.round(b.y - 16)}px) rotate(${(Math.round(b.spin / 12) % 4) * 90}deg)`;
+  if (b.gone) { b.el.remove(); ball = null; }
+}
+
+Object.assign(ACTS, {
+  fetch: d => needGround(d, 'fetch') || {
+    dur: 16, run: 1, bubble: d.def.k === 'z' ? 'BALL!!' : '!', mood: 'happy',
+    pose: (dd, u, t) => {
+      if (!ball || ball.gone) { dd.move = null; dd.actT = Math.max(dd.actT, dd.act.dur - 1.2); return { mouth: 1, head: -0.1 }; }
+      // Run after it from behind, nose at its tail (right up to it once it can be caught),
+      // never past the edges of the screen.
+      const dir = Math.sign(ball.vx) || Math.sign(ball.x - dd.sx) || 1, gap = ball.catchable && ball.age > 2.5 ? 0 : 18;
+      walkTo(dd, Math.min(0.97, Math.max(0.03, (ball.x - dir * (noseOff(dd) + gap)) / innerWidth)));
+      dd.facing = dir;
+      return { mouth: 1, ear: -0.35, head: -0.12 + 0.05 * Math.sin(t * 20) };
+    },
+  },
+  // Ziggy, ball in mouth, trotting about very pleased with himself; then he drops it.
+  proud: z => (z.slow = 0.55, {
+    dur: rnd(6, 8), run: 1,
+    pose: (d, u, t) => {
+      if (!d.move) { walkTo(d, d.fx > 0.5 ? rnd(0.1, 0.4) : rnd(0.6, 0.9)); d.slow = 0.55; }
+      if (u > 0.98 && ball?.held === d) { ball.held = null; ball.vx = 0; ball.h = Math.max(0, (curS.get('ground')?.y ?? ball.y) - ball.y); ball.vh = 0; ball.fade = 1.5; }
+      return { ear: 0.25, head: -0.25 };
+    },
+  }),
+});
 
 function step(d, dt, t, S) {
   d.actT += dt;
@@ -336,7 +459,8 @@ function place(d, S) {
   if (d.jump) {
     const j = d.jump, A = j.fromXY ? { x: j.fromXY[0], y: j.fromXY[1] } : at(S, ...j.from), B = at(S, ...j.to), u = Math.min(1, j.t);
     x = A.x + (B.x - A.x) * u;
-    y = A.y + (B.y - A.y) * u - Math.sin(Math.PI * u) * (36 + Math.abs(B.y - A.y) * 0.25);
+    const lift = Math.min(36 + Math.abs(B.y - A.y) * 0.25, Math.max(6, Math.min(A.y, B.y) - (S.ceil ?? 0)));
+    y = A.y + (B.y - A.y) * u - Math.sin(Math.PI * u) * lift;
     d.facing = B.x >= A.x ? 1 : -1;
   } else ({ x, y } = at(S, d.surf, d.fx));
   const b = d.box;
@@ -344,6 +468,11 @@ function place(d, S) {
   d.cv.style.transform = `translate(${Math.round(x - b.cx * K)}px, ${Math.round(y - b.footY * K)}px) scaleX(${d.facing})`;
   d.bubble.style.transform = `translate(${Math.round(x - 24)}px, ${Math.round(y - b.footY * K * 0.8)}px) translateY(-100%)`;
   d.sx = x; d.sy = y;
+  if (!d.fx_.hidden) {
+    const [nx, ny] = NOSE[d.def.k], sc = SIZE[d.def.k];
+    const hx = x + d.facing * (nx * sc - b.cx) * K, hy = y - (b.footY - (ny + 8 + (d.pose?.y || 0)) * sc) * K;
+    d.fx_.style.transform = `translate(${Math.round(hx)}px, ${Math.round(hy)}px) scaleX(${d.facing})`;
+  }
 }
 
 function frame(now) {
@@ -358,6 +487,8 @@ function frame(now) {
   const S = frame.S;
   curS = S;
   clock += dt;
+  if (!ball && ballReady()) throwBall();
+  if (ball) moveBall(dt, S);
   for (const d of dogs) {
     step(d, dt, still ? 0 : t * SPEED, S);
     if (draw) render(d.def.k, d.pose, d.ctx);
@@ -382,10 +513,9 @@ function react(d, x) {
   d.queue.length = 0;
   d.move = null;
   const z = d.def.k === 'z', f = d.def.k === 'f';
-  if (z) d.queue.push('playbow', 'zoomies');
-  else if (f) d.queue.push('grumble');
-  else if (Math.random() < 0.2) { d.tapFx = Math.min(0.95, Math.max(0.05, x / innerWidth)); d.queue.push('come'); }
-  else d.queue.push('ignore');
+  if (z) d.queue.push('happybark', ...(Math.random() < 0.5 ? ['zoomies'] : []));
+  else if (f) d.queue.push('angrybark');
+  else d.queue.push('growl');
   if (!d.jump) choose(d);
 }
 
@@ -420,6 +550,7 @@ export function setDogs(next) {
   if (!k) {
     root.textContent = '';
     dogs = [];
+    ball = null;
     return;
   }
   if (!dogs.length) {
@@ -431,9 +562,12 @@ export function setDogs(next) {
       const bubble = document.createElement('span');
       bubble.className = 'bubble';
       bubble.hidden = true;
-      root.append(cv, bubble);
+      const fx = document.createElement('span');
+      fx.className = 'fx';
+      fx.hidden = true;
+      root.append(cv, fx, bubble);
       return {
-        def, box: b, cv, ctx: cv.getContext('2d', { willReadFrequently: true }), bubble,
+        def, box: b, cv, ctx: cv.getContext('2d', { willReadFrequently: true }), bubble, fx_: fx,
         surf: def.start[0], fx: def.start[1], facing: i === 1 ? -1 : 1, queue: [], seed: i * 1.7, slow: 1, act: null, actT: 0,
       };
     });
