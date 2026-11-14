@@ -1,6 +1,6 @@
 // Keeps the app shell available offline. Weather data is never cached here;
 // the app stores its own last readings.
-const CACHE = 'backyard-shell-v2';
+const CACHE = 'backyard-shell-v3';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/charts.js', 'js/demo.js', 'js/units.js', 'js/wu.js',
@@ -9,7 +9,7 @@ const SHELL = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -21,11 +21,13 @@ self.addEventListener('activate', e => {
 });
 
 // Network first so updates show up straight away; fall back to the cache when offline.
+// 'no-cache' makes the browser check with the server every time, so its own HTTP
+// cache (GitHub Pages allows 10 minutes) can't hand back an old file.
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then(res => {
         if (res.ok) {
           const copy = res.clone();
