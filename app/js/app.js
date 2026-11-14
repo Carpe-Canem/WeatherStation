@@ -23,6 +23,33 @@ const settings = {
   units: { temp: 'F', wind: 'mph', pressure: 'inHg', rain: 'in', ...(saved.units || {}) },
 };
 settings.preview = 'live'; // the weather preview is only for this visit; never saved
+
+// A share link (?station=ID&key=KEY) connects this device to that station without typing anything.
+// It is applied once per link, so choosing demo data later sticks. The parameters stay in the address so
+// a bookmark or Home Screen icon made from this page keeps them; see linkManifest().
+const link = new URLSearchParams(location.search);
+const linked = link.get('station') && link.get('key')
+  ? { stationId: link.get('station').trim().toUpperCase(), apiKey: link.get('key').trim() } : null;
+if (linked && settings.link !== `${linked.stationId}|${linked.apiKey}`) {
+  Object.assign(settings, linked, { demo: false, link: `${linked.stationId}|${linked.apiKey}` });
+  write(SETTINGS_KEY, settings);
+}
+const shareUrl = () => `${location.origin}${location.pathname}?station=${encodeURIComponent(settings.stationId)}&key=${encodeURIComponent(settings.apiKey)}`;
+
+// An app added to the iPhone Home Screen keeps its own storage, apart from Safari's, and opens the
+// manifest's start_url. When the page was opened from a share link, point start_url at that link so the
+// installed app connects too.
+function linkManifest() {
+  if (!linked) return;
+  const abs = u => new URL(u, location.href).href;
+  fetch('manifest.webmanifest').then(r => r.json()).then(m => {
+    m.start_url = location.href;
+    m.scope = abs(m.scope || './');
+    m.icons = (m.icons || []).map(i => ({ ...i, src: abs(i.src) }));
+    const url = URL.createObjectURL(new Blob([JSON.stringify(m)], { type: 'application/manifest+json' }));
+    document.querySelector('link[rel="manifest"]')?.setAttribute('href', url);
+  }).catch(() => {});
+}
 const DATA_KEYS = ['current', 'today', 'hourly', 'daily', 'forecast'];
 const emptyData = () => ({ current: null, today: [], hourly: [], daily: [], forecast: [] });
 const state = {
@@ -417,6 +444,12 @@ function renderSettings() {
       </div>
       <p class="msg" id="connectMsg" role="status">${isDemo() ? 'Showing demo data.' : `Connected to ${esc(settings.stationId)}.`}</p>
     </div>
+    ${isDemo() ? '' : `<h2>Share</h2>
+    <div class="card form">
+      <p class="help">Anyone who opens this link sees your station without entering anything. It contains your API key, so only send it to people you trust.</p>
+      <input id="shareLink" readonly value="${esc(shareUrl())}">
+      <div class="row"><button class="btn ghost small" type="button" id="copyLink">Copy link</button></div>
+    </div>`}
     <h2>Units</h2>
     <div class="card form units">${Object.entries(UNIT_CHOICES).map(([kind, opts]) => `
       <label for="unit-${kind}">${names[kind]}</label>
@@ -484,7 +517,8 @@ async function connect() {
     const cur = await wu.current(cfg);
     Object.assign(settings, cfg, { demo: false });
     write(SETTINGS_KEY, settings);
-    msg.textContent = cur
+    renderSettings(); // adds the share link
+    $('#connectMsg').textContent = cur
       ? `Connected to ${cur.name}. Last report ${ago(cur.t)}.`
       : 'The key works, but the station has not reported anything yet. Check that Weather Underground upload is on in Inercom.';
     switchSource();
@@ -518,10 +552,16 @@ document.addEventListener('click', e => {
   }
   else if (t.id === 'refresh') refresh(true);
   else if (t.id === 'connect') connect();
+  else if (t.id === 'copyLink') {
+    const inp = $('#shareLink');
+    const done = () => { t.textContent = 'Copied'; };
+    navigator.clipboard?.writeText(inp.value).then(done, () => { inp.select(); document.execCommand('copy'); done(); })
+      ?? (inp.select(), document.execCommand('copy'), done());
+  }
   else if (t.id === 'useDemo') {
     settings.demo = true;
     write(SETTINGS_KEY, settings);
-    $('#connectMsg').textContent = 'Showing demo data.';
+    renderSettings(); // removes the share link
     switchSource();
   }
 });
@@ -560,6 +600,7 @@ sortable($('#view-now'), { item: '.tile', onDrop: ids => saveOrder('now', ids) }
 sortable($('#view-trends'), { item: '.chart-card', handle: 'header', onDrop: ids => saveOrder('trends', ids) });
 addEventListener('pointerup', () => setTimeout(() => { if (renderPending) render(); }));
 
+linkManifest();
 initSky();
 initDogs({ isDragging });
 go('now');
