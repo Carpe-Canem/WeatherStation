@@ -3,7 +3,8 @@
 //
 // A pose is a plain object; every field is optional:
 //   t (seconds, for fast wiggles), ph/amp (gait phase and stride), bob, y, tail, head, ear,
-//   mouth, tongue, bow, sit (0-1), lie (0-1), eyes (0 = closed), sweater, scratch, shake, puff (0-1), splash (0-1)
+//   mouth, tongue, bow, sit (0-1), lie (0-1), eyes (0 = closed), sweater, scratch, shake, puff (0-1), splash (0-1),
+//   legF/legB (extra swing of the front/back legs, radians, + is forward: dangling and falling)
 
 export const SIZE = { z: 0.9, f: 0.75, m: 0.64 }; // Ziggy is the biggest, Minnie the smallest
 const OUT = '#141012';
@@ -51,7 +52,7 @@ function posture(p, hip, drop, sitDrop, rot = 0.42, lift = 3.6) {
     const pt = base.inverse().transformPoint(o.getTransform().transformPoint({ x, y }));
     return Math.max(4, 44 + dy - pt.y - w * 0.45);
   };
-  return { bk: 1.05 * s + 1.15 * l, fa: -R * s + 1.35 * l, fx: lift * s, fold: 1.75 * s, scratch, sit: s >= 0.5, base, dy, reach };
+  return { bk: 1.05 * s + 1.15 * l + (p.legB || 0), fa: -R * s + 1.35 * l + (p.legF || 0), fx: lift * s, fold: 1.75 * s, scratch, sit: s >= 0.5, base, dy, reach };
 }
 /** Front leg: normal lengths, or when sitting, straight down to exactly the ground. */
 function front(q, hx, hy, a, l1, l2, w, col, foot, fl) {

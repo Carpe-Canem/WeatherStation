@@ -14,6 +14,7 @@ const SPEED = Math.max(0.1, +q.get('dogspeed') || 1);
 const FORCE = q.get('dogact');
 const K = 2; // screen pixels per sprite pixel
 const rnd = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const pick = list => {
   const total = list.reduce((s, [, w]) => s + Math.max(0, w), 0);
   let r = Math.random() * total;
@@ -90,7 +91,7 @@ const ACTS = {
   splash: d => needGround(d, 'splash') || { dur: 2.6, pose: (dd, u, t) => ({ y: -Math.abs(Math.sin(t * 7)) * 5, splash: (t * 7 / Math.PI) % 1, mouth: 1, amp: 0.3, ph: 1.2 }) },
   glare: still_([3, 5], () => ({ sit: 1, head: -0.32 })),
   // Off the edge of the screen, facing away, so only her tail shows.
-  hide: d => needGround(d, 'hide') || (walkTo(d, d.fx < 0.5 ? -26 / innerWidth : 1 + 26 / innerWidth), d.queue.push('comeback'), { dur: rnd(14, 22), untilArriveThenWait: 1, pose: () => ({ lie: 1 }) }),
+  hide: d => needGround(d, 'hide') || (walkTo(d, d.fx < 0.5 ? -36 / innerWidth : 1 + 26 / innerWidth), d.queue.push('comeback'), { dur: rnd(14, 22), untilArriveThenWait: 1, pose: () => ({ lie: 1 }) }),
   chase: d => needGround(d, 'chase') || { dur: rnd(3, 4.5), run: 1, pose: (dd) => { if (!dd.move) walkTo(dd, dd.fx < 0.5 ? 0.95 : 0.05); return { mouth: 1, head: -0.15 }; } },
   catch: still_([2.5, 3.5], (d, u, t) => ({ y: -Math.abs(Math.sin(t * 5)) * 7, mouth: 1, head: -0.3 })),
   dig: still_([2, 3], (d, u, t) => ({ bow: 0.18, ph: t * 30, amp: 0.25, head: 0.3 })),
@@ -120,20 +121,21 @@ const RUCKUS_GAP = 150; // seconds between ruckuses, at normal speed
 let clock = 0, lastRuckus = -1e9, curS = new Map();
 const [Z, F, M] = [0, 1, 2];
 const width = key => { const s = curS.get(key) || curS.get('ground'); return Math.max(80, s.r - s.l); };
-const onScreen = d => !!d && curS.has(d.surf) && d.fx >= 0 && d.fx <= 1 && !d.jump;
+const onScreen = d => !!d && !d.grabbed && curS.has(d.surf) && d.fx >= 0 && d.fx <= 1 && !d.jump;
 /** fx on target's surface, px pixels beside it, on the side the mover is coming from. */
 function beside(target, mover, px) {
   const side = (mover.sx ?? 0) < (target.sx ?? 0) ? -1 : 1;
   return Math.min(0.97, Math.max(0.03, target.fx + (side * px) / width(target.surf)));
 }
 function interrupt(d, name) {
+  if (d.grabbed) return;
   d.queue = [name];
   d.move = null;
   if (!d.jump) choose(d);
 }
 function canRuckus() {
   const m = dogs[M];
-  return !still && !k.night && !k.hot && !k.rain && !k.snowing && clock - lastRuckus > RUCKUS_GAP
+  return !still && !grab && !k.night && !k.hot && !k.rain && !k.snowing && clock - lastRuckus > RUCKUS_GAP
     && onScreen(m) && !['hide', 'wanderoff', 'comeback'].includes(m.actName);
 }
 
@@ -310,11 +312,13 @@ const pix = (rows, col, z = 3) => {
 };
 const VEIN = pix(['.xx.xx.', 'x.x.x.x', 'xx...xx', '.......', 'xx...xx', 'x.x.x.x', '.xx.xx.'], '#e3342f');
 const HEART = pix(['.xx.xx.', 'xxxxxxx', 'xxxxxxx', '.xxxxx.', '..xxx..', '...x...'], '#ff6b8f');
+const STAR = pix(['..x..', '.xxx.', 'xxxxx', '.xxx.', '..x..'], '#f5c518', 2);
 const ZIG = pix(['x...x...', '.x.x.x.x', '..x...x.'], 'currentColor');
 const FX = {
   anger: [[VEIN, -26, -38, 0], [VEIN, -6, -46, 0.22], [VEIN, -42, -24, 0.4]],
   joy: [[HEART, -28, -32, 0], [HEART, -10, -40, 0.4], [HEART, -42, -22, 0.8]],
   growl: [[ZIG, 6, -6, 0], [ZIG, 9, 4, 0.12], [ZIG, 5, 14, 0.24]],
+  dizzy: [[STAR, -22, -34, 0], [STAR, -22, -34, -0.3], [STAR, -22, -34, -0.6]],
 };
 function showFx(d, kind) {
   if (!kind || still) { d.fx_.hidden = true; return; }
@@ -335,7 +339,7 @@ const noseOff = d => (NOSE[d.def.k][0] * SIZE[d.def.k] - d.box.cx) * K;
 
 function ballReady() {
   if (FORCE === 'ball') return clock > nextBall;
-  return clock > nextBall && !still && !k.night && !k.snowing
+  return clock > nextBall && !still && !grab && !k.night && !k.snowing
     && !dogs.some(d => ['pester', 'rescue', 'flee', 'flinch'].includes(d.actName));
 }
 
@@ -467,7 +471,14 @@ function place(d, S) {
   } else ({ x, y } = at(S, d.surf, d.fx));
   const b = d.box;
   x += (d.pose?.x || 0) * K;
-  d.cv.style.transform = `translate(${Math.round(x - b.cx * K)}px, ${Math.round(y - b.footY * K)}px) scaleX(${d.facing})`;
+  // Just landed from a drop: squash flat, spring up tall, a little bounce, settle.
+  let sc = '';
+  if (d.squash > 0) {
+    const u = 1 - d.squash / SQUASH, s = 0.28 * Math.exp(-u * 5) * Math.cos(u * 11);
+    sc = ` scale(${(1 + s * 0.7).toFixed(3)}, ${(1 - s).toFixed(3)})`;
+    if (u > 0.15 && u < 0.6) y -= Math.sin(((u - 0.15) / 0.45) * Math.PI) * 5;
+  }
+  d.cv.style.transform = `translate(${Math.round(x - b.cx * K)}px, ${Math.round(y - b.footY * K)}px) scaleX(${d.facing})${sc}`;
   d.bubble.style.transform = `translate(${Math.round(x - 24)}px, ${Math.round(y - b.footY * K * 0.8)}px) translateY(-100%)`;
   d.sx = x; d.sy = y;
   if (!d.fx_.hidden) {
@@ -480,11 +491,11 @@ function place(d, S) {
 function frame(now) {
   raf = requestAnimationFrame(frame);
   if (!k) return;
-  const t = now / 1000, dt = Math.min(0.1, (t - (frame.t || t))) * (still ? 0 : SPEED);
+  const t = now / 1000, rdt = Math.min(0.05, t - (frame.t || t)), dt = Math.min(0.1, (t - (frame.t || t))) * (still ? 0 : SPEED);
   frame.t = t;
   const draw = now - lastDraw > 90;
   if (draw) lastDraw = now;
-  const moving = dogs.some(d => d.jump || d.move);
+  const moving = grab || dogs.some(d => d.jump || d.move);
   if (draw || moving || scrolled || !frame.S) { frame.S = surfaces(); scrolled = false; }
   const S = frame.S;
   curS = S;
@@ -492,16 +503,236 @@ function frame(now) {
   if (!ball && ballReady()) throwBall();
   if (ball) moveBall(dt, S);
   for (const d of dogs) {
-    step(d, dt, still ? 0 : t * SPEED, S);
-    if (draw) render(d.def.k, d.pose, d.ctx);
-    place(d, S);
+    if (d.grabbed) grabStep(d, rdt, t, S);
+    else step(d, dt, still ? 0 : t * SPEED, S);
+    if (d.squash > 0) d.squash = Math.max(0, d.squash - rdt);
+    if (draw || d.grabbed) render(d.def.k, d.pose, d.ctx);
+    if (d.grabbed) placeGrab(d, S); else place(d, S);
   }
 }
+
+// ---------- picking a dog up ----------
+// Press and hold a dog (a mouse can simply drag) to pick it up by the scruff. It dangles from the
+// pointer and swings like a pendulum, while a shadow and a glowing ledge show where it will land.
+// Let go and it falls, keeping the pointer's sideways speed, onto the first surface below.
+
+const HOLD_MS = 300, SLOP = 10, GRAV = 2200, TURN = Math.PI / 12, SQUASH = 0.4;
+// Where each dog is held, in its unscaled drawing.
+const SCRUFF = { z: [49, 17], f: [43, 20], m: [41, 19] };
+// How far each hangs nose-up: Frank holds himself stiff, Minnie goes limp.
+const TILT = { z: 0.35, f: 0.22, m: 0.5 };
+let grab = null, shadowEl, ledgeEl;
+
+/** The scruff, in the dog's canvas, in screen pixels. */
+const scruff = d => { const [x, y] = SCRUFF[d.def.k], s = SIZE[d.def.k]; return [x * s * K, (y + 8) * s * K]; };
+/** The feet, relative to the scruff, for a dog held level. */
+const feetRel = d => { const [gx, gy] = scruff(d); return [d.facing * (d.box.cx * K - gx), d.box.footY * K - gy]; };
+
+function startHold(x, y) {
+  const p = tap;
+  tap = null;
+  if (!p) return;
+  clearTimeout(p.timer);
+  if (!dogs.includes(p.d) || p.d.grabbed || grab) return;
+  pickUp(p.d, p.x, p.y, p.id);
+  if (x != null) { grab.px = x; grab.py = y; }
+}
+
+function pickUp(d, x, y, id) {
+  const [rx, ry] = feetRel(d), [gx, gy] = scruff(d), now = performance.now();
+  grab = {
+    d, id, phase: 'held', px: x, py: y, age: 0, samples: [[now, x, y]],
+    ox: still ? 0 : d.sx - rx - x, oy: still ? 4 : d.sy - ry - y, // the scruff, from the finger; it slides in under it
+    ang: 0, av: 0, fvx: 0, lpx: x, lfvx: 0, tilt: -d.facing * TILT[d.def.k],
+  };
+  Object.assign(d, { grabbed: true, queue: [], move: null, jump: null, walking: false, squash: 0, actName: 'held', act: { dur: 1e9 }, actT: 0 });
+  d.cv.style.transformOrigin = `${gx}px ${gy}px`;
+  d.cv.style.zIndex = 2;
+  document.documentElement.classList.add('dog-held');
+  navigator.vibrate?.(12);
+  d.bubble.hidden = true; clearTimeout(d.bubbleTimer);
+  const kk = d.def.k;
+  if (kk === 'f') say(d, 'hmph', 2.5);
+  else if (kk === 'm') say(d, '…', 2.5);
+  showFx(d, kk === 'z' ? 'joy' : null);
+  // The others stop to watch; Frank won't have anyone lifting Minnie.
+  for (const o of dogs) {
+    if (o === d || ['nap', 'curl'].includes(o.actName)) continue;
+    if (o.def.k === 'f' && kk === 'm') { interrupt(o, 'angrybark'); o.queue.push('watch'); }
+    else interrupt(o, 'watch');
+  }
+}
+
+function release() {
+  const g = grab, d = g.d, now = performance.now();
+  document.documentElement.classList.remove('dog-held');
+  // Throw speed: how far the pointer moved over its last tenth of a second.
+  const s = g.samples.filter(([t]) => now - t < 100);
+  let vx = 0, vy = 0;
+  if (s.length > 1) {
+    const [t0, x0, y0] = s[0], [t1, x1, y1] = s[s.length - 1], dt = Math.max(40, t1 - t0) / 1000;
+    vx = (x1 - x0) / dt; vy = (y1 - y0) / dt;
+  }
+  // A finger still drifting as it lifts is a drop, not a throw; a real flick is toned down to fit a phone.
+  if (Math.hypot(vx, vy) < 300) vx = vy = 0;
+  Object.assign(g, { phase: 'fall', x: g.px + g.ox, y: g.py + g.oy, vx: clamp(vx * 0.5, -650, 650), vy: clamp(vy * 0.5, -500, 500) });
+  g.peak = g.y + feetRel(d)[1];
+  if (still) { // no flying about: straight onto whatever is below
+    const [rx, ry] = feetRel(d), fx = clamp(g.x + rx, 14, innerWidth - 14);
+    land(d, target(curS, fx, g.y + ry), fx);
+  }
+}
+
+/** The surface a dog whose feet are at (x, y) would land on. */
+function target(S, x, y) {
+  let best = null;
+  for (const [key, s] of S) {
+    if (s.ground || x < s.l || x > s.r || s.y < y - 2) continue;
+    if (!best || s.y < best.s.y) best = { key, s };
+  }
+  return best || { key: 'ground', s: S.get('ground') };
+}
+
+function heldPose(d, t, g) {
+  const ear = clamp(-g.fvx * 0.0007 * d.facing, -0.5, 0.5);
+  if (d.def.k === 'z') return { ph: t * 16, amp: 0.55, legF: -0.15, legB: 0.15, mouth: 1, head: -0.12, ear: 0.2 + ear, tail: t * 22 }; // paddling, delighted
+  if (d.def.k === 'f') return { legF: 0.55, legB: -0.6, head: 0.1, ear: -0.4 + ear, tail: Math.sin(t * 9) * 0.4 }; // stiff as a board
+  return { legF: -0.3, legB: 0.35, head: 0.38, eyes: Math.sin(t * 1.3) > 0.8 ? 1 : 0, ear: -0.35 + ear, tail: t }; // a rag doll
+}
+
+function grabStep(d, dt, t, S) {
+  const g = grab;
+  if (g.phase === 'held') {
+    if (dt > 0) {
+      g.age += dt;
+      // Pops up into the hand after a quick squash.
+      if (g.age > 0.09) { const f = Math.exp(-dt * 16); g.ox *= f; g.oy = 4 + (g.oy - 4) * f; }
+      // A pendulum on the finger: it lags as the finger speeds up and swings on past when it stops.
+      const v = (g.px - g.lpx) / dt; g.lpx = g.px;
+      g.fvx += (v - g.fvx) * Math.min(1, dt * 20);
+      const ax = (g.fvx - g.lfvx) / dt; g.lfvx = g.fvx;
+      if (!still) {
+        g.av += (-100 * g.ang - 4 * g.av + 0.004 * ax) * dt;
+        g.ang = clamp(g.ang + g.av * dt, -0.9, 0.9);
+      }
+    }
+    d.pose = { t, ...heldPose(d, still ? 0 : t, g) };
+  } else {
+    d.pose = { t, legF: 0.7, legB: -0.7, mouth: 1, head: -0.2, ear: -0.45, tail: t * 6 };
+    if (dt > 0) {
+      const ry = feetRel(d)[1], y0 = g.y + ry;
+      g.vy += GRAV * dt;
+      g.x += g.vx * dt; g.y += g.vy * dt;
+      // Bump off the sides and the top of the screen rather than leave it.
+      const fx = g.x + feetRel(d)[0];
+      if ((fx < 14 && g.vx < 0) || (fx > innerWidth - 14 && g.vx > 0)) g.vx *= -0.45;
+      g.x = clamp(fx, 14, innerWidth - 14) - feetRel(d)[0];
+      if (g.y < 20 && g.vy < 0) g.vy *= -0.3;
+      // Righting itself on the way down.
+      g.tilt *= Math.exp(-dt * 7);
+      g.av += (-80 * g.ang - 10 * g.av) * dt; g.ang += g.av * dt;
+      const y1 = g.y + ry, x1 = g.x + feetRel(d)[0];
+      g.peak = Math.min(g.peak, y1);
+      if (g.vy > 0) {
+        const ground = S.get('ground');
+        let hit = y1 >= ground.y ? { key: 'ground', s: ground } : null;
+        for (const [key, s] of S) {
+          if (!s.ground && x1 >= s.l && x1 <= s.r && y0 <= s.y && y1 >= s.y && (!hit || s.y < hit.s.y)) hit = { key, s };
+        }
+        if (hit) { land(d, hit, x1); return; }
+      }
+    }
+  }
+  if (k.hot) d.pose.tongue = 1;
+  if (k.cold && d.def.k === 'f') d.pose.sweater = 1;
+}
+
+function land(d, { key, s }, x) {
+  const g = grab, drop = s.y - g.peak;
+  grab = null;
+  d.grabbed = false;
+  d.surf = key;
+  d.fx = clamp((x - s.l) / Math.max(1, s.r - s.l), 0.02, 0.98);
+  if (Math.abs(g.vx) > 80) d.facing = Math.sign(g.vx);
+  d.cv.style.transformOrigin = `${d.box.cx * K}px ${d.box.footY * K}px`;
+  d.cv.style.zIndex = '';
+  shadowEl.hidden = ledgeEl.hidden = true;
+  d.dropX = g.px;
+  if (!still) { d.squash = SQUASH; puff(x, s.y, drop, s.ground); }
+  const after = d.def.k === 'z' ? ['again', ...(Math.random() < 0.5 ? ['zoomies'] : [])] : d.def.k === 'f' ? ['shake', 'sulk'] : ['shake', 'snub'];
+  d.queue = [...(drop > 260 && !still ? ['dazed'] : []), ...after];
+  choose(d);
+}
+
+/** Dust (or a splash, or snow) kicked up where a dog lands. */
+function puff(x, y, drop, ground) {
+  const el = document.createElement('span');
+  el.className = `puff ${(k.rain || k.puddles) && ground ? 'wet' : k.snowing ? 'snow' : ''}`;
+  const n = drop > 200 ? 6 : 4;
+  el.innerHTML = Array.from({ length: n }, (_, i) => `<i style="--dx:${(i % 2 ? 1 : -1) * (12 + (i >> 1) * 9)}px;--dy:${-(3 + (i % 3) * 5)}px"></i>`).join('');
+  el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  root.append(el);
+  setTimeout(() => el.remove(), 700);
+}
+
+function placeGrab(d, S) {
+  const g = grab, [gx, gy] = scruff(d), held = g.phase === 'held';
+  const x = held ? g.px + g.ox : g.x, y = held ? g.py + g.oy : g.y;
+  const ang = still ? 0 : Math.round((g.tilt + g.ang) / TURN) * TURN; // whole steps keep the pixels crisp
+  const sq = held && g.age < 0.09 && !still ? ' scale(1.06, 0.9)' : '';
+  d.cv.style.transform = `translate(${Math.round(x - gx)}px, ${Math.round(y - gy)}px) rotate(${ang.toFixed(4)}rad) scaleX(${d.facing})${sq}`;
+  const [rx, ry] = feetRel(d);
+  d.sx = x + rx; d.sy = y + ry;
+  d.bubble.style.transform = `translate(${Math.round(x - 24)}px, ${Math.round(y - 30)}px) translateY(-100%)`;
+  if (!d.fx_.hidden) {
+    const [nx, ny] = NOSE[d.def.k], sc = SIZE[d.def.k], c = Math.cos(ang), s = Math.sin(ang);
+    const vx = d.facing * (nx * sc * K - gx), vy = (ny + 8) * sc * K - gy;
+    d.fx_.style.transform = `translate(${Math.round(x + vx * c - vy * s)}px, ${Math.round(y + vx * s + vy * c)}px) scaleX(${d.facing})`;
+  }
+  // The shadow on the surface below, sharper and darker the nearer it gets, and that surface's edge aglow.
+  const fx = clamp(d.sx, 14, innerWidth - 14), tg = target(S, fx, d.sy), f = clamp(1 - (tg.s.y - d.sy) / 700, 0.4, 1);
+  shadowEl.hidden = false;
+  shadowEl.style.width = `${Math.round(d.box.w * K * 0.55)}px`;
+  shadowEl.style.opacity = (0.15 + 0.35 * f).toFixed(2);
+  shadowEl.style.transform = `translate(${Math.round(fx)}px, ${Math.round(tg.s.y)}px) translate(-50%, -50%) scale(${f.toFixed(2)})`;
+  ledgeEl.hidden = !!tg.s.ground;
+  if (!tg.s.ground) {
+    ledgeEl.style.width = `${Math.round(tg.s.r - tg.s.l + 16)}px`;
+    ledgeEl.style.transform = `translate(${Math.round(tg.s.l - 8)}px, ${Math.round(tg.s.y)}px)`;
+  }
+}
+
+Object.assign(ACTS, {
+  // The others, while a dog is up in the air: sit and look up at it.
+  watch: () => ({
+    dur: 30,
+    pose: d => {
+      const g = grab?.d;
+      if (!g) { d.actT = d.act.dur; return { sit: 1 }; }
+      d.facing = g.sx > d.sx ? 1 : -1;
+      return { sit: 1, head: -0.35, ear: 0.15 };
+    },
+  }),
+  // After a long drop: seeing stars.
+  dazed: () => ({ dur: 1.5, fx: 'dizzy', pose: (d, u, t) => ({ sit: 1, head: Math.sin(t * 7) * 0.15, eyes: Math.floor(t * 3) % 2, ear: -0.2 }) }),
+  // Ziggy: that was the best thing ever.
+  again: () => ({ dur: 2, bubble: 'Again!', mood: 'happy', fx: 'joy', pose: (d, u, t) => ({ mouth: 1, head: -0.22, y: -Math.abs(Math.sin(t * 9)) * 4, ear: 0.2 }) }),
+  // Frank: back turned on whoever did that.
+  sulk: d => { d.facing = (d.dropX ?? d.sx) > d.sx ? -1 : 1; return { dur: 3, bubble: 'hmph', pose: () => ({ sit: 1, head: 0.1, ear: -0.2 }) }; },
+  // Minnie: a long look at whoever did that, then she walks off the other way.
+  snub: d => { d.facing = (d.dropX ?? d.sx) > d.sx ? 1 : -1; d.queue.unshift('walkoff'); return { dur: 1.3, pose: () => ({ sit: 1, head: -0.32, ear: -0.3 }) }; },
+  walkoff: d => {
+    const away = (d.dropX ?? d.sx) > d.sx ? -1 : 1;
+    walkTo(d, clamp(d.fx + (away * rnd(110, 180)) / width(d.surf), 0.05, 0.95));
+    return { dur: 10, untilArrive: 1, pose: () => ({ head: -0.1, ear: -0.2 }) };
+  },
+});
 
 // ---------- taps ----------
 
 function hitDog(x, y) {
   for (const d of dogs) {
+    if (d.grabbed) continue;
     const r = d.cv.getBoundingClientRect();
     if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
     let lx = Math.floor((x - r.left) / K), ly = Math.floor((y - r.top) / K);
@@ -522,12 +753,36 @@ function react(d, x) {
 }
 
 function onDown(e) {
-  if (!k || !dogs.length) return;
+  if (!k || !dogs.length || grab || opts.isDragging?.()) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  clearTimeout(tap?.timer);
   const d = hitDog(e.clientX, e.clientY);
-  tap = d ? { d, x: e.clientX, y: e.clientY, at: performance.now(), id: e.pointerId } : null;
+  tap = d ? { d, x: e.clientX, y: e.clientY, at: performance.now(), id: e.pointerId, mouse: e.pointerType === 'mouse' } : null;
+  if (!d) return;
+  e.stopPropagation(); // a press on a dog is for the dog, not the tile it stands on
+  tap.timer = setTimeout(() => startHold(), HOLD_MS);
+}
+function onMove(e) {
+  if (grab?.phase === 'held' && e.pointerId === grab.id) {
+    const now = performance.now();
+    grab.px = e.clientX; grab.py = e.clientY;
+    grab.samples.push([now, e.clientX, e.clientY]);
+    while (grab.samples.length > 2 && now - grab.samples[0][0] > 120) grab.samples.shift();
+    return;
+  }
+  if (!tap || e.pointerId !== tap.id) return;
+  const dist = Math.hypot(e.clientX - tap.x, e.clientY - tap.y);
+  if (tap.mouse && dist > 6) startHold(e.clientX, e.clientY); // a mouse can just drag
+  else if (!tap.mouse && dist > SLOP) { clearTimeout(tap.timer); tap = null; } // moved before the hold: a scroll
+}
+function onCancel(e) {
+  if (grab?.phase === 'held' && e.pointerId === grab.id) release();
+  if (tap && e.pointerId === tap.id) { clearTimeout(tap.timer); tap = null; }
 }
 function onUp(e) {
+  if (grab?.phase === 'held' && e.pointerId === grab.id) { release(); suppressClick = performance.now() + 450; return; }
   if (!tap || e.pointerId !== tap.id) return;
+  clearTimeout(tap.timer);
   const ok = performance.now() - tap.at < 400 && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 10 && !opts.isDragging?.();
   if (ok) { react(tap.d, e.clientX); suppressClick = performance.now() + 450; }
   tap = null;
@@ -543,6 +798,11 @@ export function initDogs(o = {}) {
   addEventListener('resize', () => { scrolled = true; });
   addEventListener('pointerdown', onDown, true);
   addEventListener('pointerup', onUp, true);
+  addEventListener('pointermove', onMove, true);
+  addEventListener('pointercancel', onCancel, true);
+  // While a dog is held, the page mustn't scroll or pop up a callout under the finger.
+  document.addEventListener('touchmove', e => { if (grab?.phase === 'held') e.preventDefault(); }, { passive: false });
+  document.addEventListener('contextmenu', e => { if (grab || tap) e.preventDefault(); });
   addEventListener('click', e => { if (performance.now() < suppressClick) { e.preventDefault(); e.stopPropagation(); } }, true);
 }
 
@@ -553,6 +813,9 @@ export function setDogs(next) {
     root.textContent = '';
     dogs = [];
     ball = null;
+    grab = null;
+    clearTimeout(tap?.timer); tap = null;
+    document.documentElement.classList.remove('dog-held');
     return;
   }
   if (!dogs.length) {
@@ -561,6 +824,7 @@ export function setDogs(next) {
       cv.width = b.w; cv.height = b.h;
       cv.className = 'dog';
       cv.style.width = `${b.w * K}px`; cv.style.height = `${b.h * K}px`;
+      cv.style.transformOrigin = `${b.cx * K}px ${b.footY * K}px`; // flip and squash about the feet
       const bubble = document.createElement('span');
       bubble.className = 'bubble';
       bubble.hidden = true;
@@ -573,6 +837,9 @@ export function setDogs(next) {
         surf: def.start[0], fx: def.start[1], facing: i === 1 ? -1 : 1, queue: [], seed: i * 1.7, slow: 1, act: null, actT: 0,
       };
     });
+    shadowEl = Object.assign(document.createElement('span'), { className: 'dshadow', hidden: true });
+    ledgeEl = Object.assign(document.createElement('span'), { className: 'ledge', hidden: true });
+    root.prepend(shadowEl, ledgeEl);
   }
   if (q.has('dogspeed')) window.__pack = dogs; // for debugging
   if (!raf) raf = requestAnimationFrame(frame);
