@@ -103,6 +103,110 @@ const ACTS = {
   ignore: d => { d.facing *= -1; return { dur: 2, pose: () => ({ sit: 1, head: -0.2 }) }; },
 };
 
+// ---------- the ruckus ----------
+// Now and then Ziggy pesters Minnie: play bows and little nips. Minnie flinches and pretends not to care.
+// Frank, who is protective of her, growls, rushes over and chases Ziggy off, then stands guard by her.
+
+const RUCKUS_GAP = 150; // seconds between ruckuses, at normal speed
+let clock = 0, lastRuckus = -1e9, curS = new Map();
+const [Z, F, M] = [0, 1, 2];
+const width = key => { const s = curS.get(key) || curS.get('ground'); return Math.max(80, s.r - s.l); };
+const onScreen = d => !!d && curS.has(d.surf) && d.fx >= 0 && d.fx <= 1 && !d.jump;
+/** fx on target's surface, px pixels beside it, on the side the mover is coming from. */
+function beside(target, mover, px) {
+  const side = (mover.sx ?? 0) < (target.sx ?? 0) ? -1 : 1;
+  return Math.min(0.97, Math.max(0.03, target.fx + (side * px) / width(target.surf)));
+}
+function interrupt(d, name) {
+  d.queue = [name];
+  d.move = null;
+  if (!d.jump) choose(d);
+}
+function canRuckus() {
+  const m = dogs[M];
+  return !still && !k.night && !k.hot && !k.rain && !k.snowing && clock - lastRuckus > RUCKUS_GAP
+    && onScreen(m) && !['hide', 'wanderoff', 'comeback'].includes(m.actName);
+}
+
+Object.assign(ACTS, {
+  // Ziggy: goes to Minnie, play-bows, then lunges with a nip, over and over.
+  pester: z => {
+    lastRuckus = clock;
+    return {
+      dur: 14,
+      pose: (d, u, t) => {
+        const m = dogs[M];
+        if (!onScreen(m) && !m.jump) { d.actT = d.act.dur; return {}; }
+        if (d.jump || m.jump) return { mouth: 1 };
+        if (d.surf !== m.surf) { jumpTo(d, [m.surf, beside(m, d, 24)]); return { mouth: 1 }; }
+        if (Math.abs(d.sx - m.sx) > 34) { walkTo(d, beside(m, d, 24)); d.slow = 1.6; return { mouth: 1, ear: -0.2 }; }
+        d.move = null;
+        d.facing = m.sx > d.sx ? 1 : -1;
+        const c = (t * 1.3) % 1;
+        if (c < 0.55) return { bow: 0.22, ear: -0.25 };
+        if (!d.nipped) { d.nipped = 1; say(d, 'nip!', 1); onNip(d, m); }
+        return { mouth: 1, x: d.facing * 3, ear: -0.35 };
+      },
+    };
+  },
+  // Minnie: a startled hop, ears back, then she turns away as if nothing happened.
+  flinch: m => {
+    m.queue.push('ignore');
+    return { dur: 1.1, pose: (d, u) => ({ y: u < 0.4 ? -Math.sin((u / 0.4) * Math.PI) * 4 : 0, ear: 0.5, head: -0.15 }) };
+  },
+  // Frank: growls, rushes to Ziggy (hopping between surfaces if he must), and chases him.
+  rescue: f => {
+    say(f, 'GRR!', 1.4);
+    f.queue.push('guardM');
+    return {
+      dur: 12, run: 1,
+      pose: (d, u, t) => {
+        const z = dogs[Z];
+        if (z.fx < -0.15 || z.fx > 1.15) { d.actT = d.act.dur; return {}; } // Ziggy has gone
+        if (d.jump || z.jump) return { mouth: 1 };
+        if (d.surf !== z.surf) { jumpTo(d, [z.surf, beside(z, d, 30)]); return { mouth: 1 }; }
+        if (!d.chasing && Math.abs(d.sx - z.sx) < 40) { d.chasing = 1; interrupt(z, 'flee'); say(d, 'WOOF! WOOF!', 2.2); }
+        walkTo(d, Math.min(0.97, Math.max(0.03, z.fx)));
+        return { mouth: Math.floor(t * 5) % 2, head: -0.05, ear: -0.15 };
+      },
+    };
+  },
+  // Ziggy: drops to the ground and bolts off the edge of the screen, then wanders back later.
+  flee: z => {
+    const f = dogs[F], away = (f.sx ?? 0) < (z.sx ?? 0) ? 1 : -1;
+    if (z.surf !== 'ground') {
+      z.queue.unshift('flee');
+      jumpTo(z, ['ground', Math.min(0.9, Math.max(0.1, (z.sx + away * 60) / innerWidth))]);
+      return { dur: 9, untilLand: 1, run: 1 };
+    }
+    walkTo(z, away > 0 ? 1.35 : -0.35);
+    z.queue.push('comeback');
+    return { dur: rnd(5, 8), run: 1, untilArriveThenWait: 1, pose: () => ({ mouth: 1, ear: -0.35 }) };
+  },
+  // Frank: back to Minnie's side, sitting watch with his back to her.
+  guardM: f => {
+    const m = dogs[M];
+    if (!onScreen(m)) return { dur: 3, pose: () => ({ sit: 1, head: -0.06 }) };
+    if (f.surf !== m.surf) { f.queue.unshift('guardM'); jumpTo(f, [m.surf, beside(m, f, 30)]); return { dur: 9, untilLand: 1 }; }
+    walkTo(f, beside(m, f, 30));
+    return {
+      dur: rnd(10, 14),
+      pose: d => {
+        if (d.move) return {};
+        d.facing = d.sx < m.sx ? -1 : 1;
+        return { sit: 1, head: -0.06, ear: -0.1 };
+      },
+    };
+  },
+});
+
+function onNip(z, m) {
+  interrupt(m, 'flinch');
+  const f = dogs[F];
+  // Even on guard, he goes after Ziggy; only a chase already under way is left alone.
+  if (f.actName !== 'rescue') setTimeout(() => interrupt(f, 'rescue'), 450 / SPEED);
+}
+
 function needGround(d, act) {
   if (d.surf === 'ground') return null;
   d.queue.unshift(act);
@@ -136,7 +240,7 @@ function weights(d) {
   const z = d.def.k === 'z', f = d.def.k === 'f', m = d.def.k === 'm';
   if (k.night) return [['nap', 10], ['lie', 1.5], ['sit', 0.4], ['wander', m ? 0.5 : 0.05], ['look', f ? 0.6 : 0.1]];
   const w = z
-    ? { sit: 3, lie: 3, nap: 1, look: 1.5, scratch: 0.7, yawn: 0.5, wander: 3, hop: 2.5, sniff: 1, playbow: 0.8, zoomies: 0.8 }
+    ? { sit: 3, lie: 3, nap: 1, look: 1.5, scratch: 0.7, yawn: 0.5, wander: 3, hop: 2.5, sniff: 1, playbow: 0.8, zoomies: 0.8, pester: canRuckus() ? 1.4 : 0 }
     : f
       ? { sit: 4, lie: 3, nap: 2, look: 1.5, scratch: 0.5, yawn: 0.5, wander: 1.5, hop: 1, sniff: 1, guard: 1.5, bark: 0.5, grumble: 0.5 }
       : { sit: 3, lie: 3, nap: 2, look: 1, scratch: 0.5, yawn: 0.5, wander: 2.5, hop: 1, sniff: 2, gaze: 2, wanderoff: 0.5 };
@@ -156,12 +260,12 @@ function weights(d) {
 }
 
 function choose(d) {
-  d.turned = 0; d.slow = 1; d.move = null;
+  d.turned = 0; d.slow = 1; d.move = null; d.nipped = 0; d.chasing = 0;
   let name = d.queue.shift();
   // Frank won't stand on hot pavement: first thing, he finds a tile.
   if (!name && !still && k.hotGround && d.def.k === 'f' && d.surf === 'ground' && surfaces().size > 1) name = 'hop';
   if (!name) {
-    if (FORCE && ACTS[FORCE]) name = FORCE;
+    if (FORCE && ACTS[FORCE] && weights(d).some(([a]) => a === FORCE)) name = FORCE;
     else if (still) name = pick([['sit', 1], ['lie', 1]]);
     else name = pick(weights(d));
   }
@@ -252,6 +356,8 @@ function frame(now) {
   const moving = dogs.some(d => d.jump || d.move);
   if (draw || moving || scrolled || !frame.S) { frame.S = surfaces(); scrolled = false; }
   const S = frame.S;
+  curS = S;
+  clock += dt;
   for (const d of dogs) {
     step(d, dt, still ? 0 : t * SPEED, S);
     if (draw) render(d.def.k, d.pose, d.ctx);
