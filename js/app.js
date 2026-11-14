@@ -13,7 +13,7 @@ const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } ca
 
 const saved = read(SETTINGS_KEY) || {};
 const settings = {
-  stationId: '', apiKey: '', demo: true, ...saved,
+  stationId: '', apiKey: '', demo: true, theme: 'system', ...saved,
   units: { temp: 'F', wind: 'mph', pressure: 'inHg', rain: 'in', ...(saved.units || {}) },
 };
 const DATA_KEYS = ['current', 'today', 'hourly', 'daily', 'forecast'];
@@ -22,6 +22,20 @@ const state = {
   view: 'now', range: 'today', ...emptyData(),
   error: null, loading: false, lastCurrent: 0, lastFull: 0, lastForecast: 0,
 };
+
+// ---------- appearance ----------
+
+const THEMES = [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']];
+const dark = matchMedia('(prefers-color-scheme: dark)');
+function applyTheme() {
+  const t = settings.theme;
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  // Keep the browser and status bar in step with the page.
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--page').trim();
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', bg));
+}
+dark.addEventListener('change', () => { applyTheme(); if (state.view === 'trends') renderTrends(); });
 
 const isDemo = () => settings.demo || !settings.stationId || !settings.apiKey;
 const units = () => makeUnits(settings.units);
@@ -40,19 +54,31 @@ const CARDINALS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW',
 const cardinal = deg => CARDINALS[Math.round(deg / 22.5) % 16];
 const uvBand = uv => (uv < 3 ? 'Low' : uv < 6 ? 'Moderate' : uv < 8 ? 'High' : uv < 11 ? 'Very high' : 'Extreme');
 
+// Line icons drawn in the theme's ink; the sun takes the brass accent.
+const CLOUD = '<path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 11.2 3.5 3.5 0 0 0 7 18z"/>';
+const ICONS = {
+  sun: '<g class="sun"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></g>',
+  moon: '<path d="M19 14.5A7.5 7.5 0 0 1 9.5 5a7.5 7.5 0 1 0 9.5 9.5z"/>',
+  cloud: CLOUD,
+  partly: '<g class="sun"><path d="M8 3v1.5M3 8h1.5M4.5 4.5l1 1M11.5 4.5l-1 1"/><path d="M5.3 10.4A3.5 3.5 0 0 1 11 6.5"/></g><path d="M9 20h8a3.5 3.5 0 0 0 .4-6.97 5 5 0 0 0-9.6 1.2A2.9 2.9 0 0 0 9 20z"/>',
+  rain: '<path d="M7 14h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 7.2 3.5 3.5 0 0 0 7 14z"/><path d="M8 17l-1 3M12 17l-1 3M16 17l-1 3"/>',
+  snow: '<path d="M7 14h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 7.2 3.5 3.5 0 0 0 7 14z"/><path d="M8 18h.01M12 18h.01M16 18h.01M10 21h.01M14 21h.01" stroke-width="2.4"/>',
+  storm: '<path d="M7 14h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6.1 7.2 3.5 3.5 0 0 0 7 14z"/><path class="sun" d="M12.5 14l-2 3.5h3l-2 3.5"/>',
+  fog: '<path d="M4 9h16M6 13h12M4 17h16"/>',
+  wind: '<path d="M3 9h11a3 3 0 1 0-3-3M3 15h15a3 3 0 1 1-3 3M3 12h8"/>',
+};
 function forecastIcon(code) {
   if (code == null) return '';
-  if ([0, 1, 2, 3, 4, 37, 38, 47].includes(code)) return '⛈️';
-  if ([13, 14, 15, 16, 41, 42, 43, 46].includes(code)) return '❄️';
-  if ([5, 6, 7, 8, 10, 17, 18, 35].includes(code)) return '🌨️';
-  if ([9, 11, 12, 39, 40, 45].includes(code)) return '🌧️';
-  if ([19, 20, 21, 22].includes(code)) return '🌫️';
-  if ([23, 24].includes(code)) return '💨';
-  if (code === 26) return '☁️';
-  if ([27, 28].includes(code)) return '🌥️';
-  if ([29, 30].includes(code)) return '⛅';
-  if ([31, 33].includes(code)) return '🌙';
-  return '☀️';
+  let k = 'sun';
+  if ([0, 1, 2, 3, 4, 37, 38, 47].includes(code)) k = 'storm';
+  else if ([5, 6, 7, 8, 10, 13, 14, 15, 16, 17, 18, 35, 41, 42, 43, 46].includes(code)) k = 'snow';
+  else if ([9, 11, 12, 39, 40, 45].includes(code)) k = 'rain';
+  else if ([19, 20, 21, 22].includes(code)) k = 'fog';
+  else if ([23, 24].includes(code)) k = 'wind';
+  else if ([26, 27, 28].includes(code)) k = 'cloud';
+  else if ([29, 30].includes(code)) k = 'partly';
+  else if ([31, 33].includes(code)) k = 'moon';
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg>`;
 }
 
 function errorText(e) {
@@ -271,7 +297,7 @@ function renderNow() {
 
 const CHARTS = [
   { id: 'temp', title: 'Temperature', kind: 'temp',
-    series: r => (r === '30d' ? [['High', 'tempHi', '--s2'], ['Low', 'tempLo', '--s1']] : [['Temperature', 'temp', '--s1'], ['Dew point', 'dewpt', '--s3']]) },
+    series: r => (r === '30d' ? [['High', 'tempHi', '--s2'], ['Low', 'tempLo', '--s3']] : [['Temperature', 'temp', '--s1'], ['Dew point', 'dewpt', '--s3']]) },
   { id: 'humidity', title: 'Humidity', series: () => [['Humidity', 'humidity', '--s1']] },
   { id: 'wind', title: 'Wind', kind: 'wind', series: () => [['Speed', 'wind', '--s1'], ['Gust', 'gust', '--s2']] },
   { id: 'pressure', title: 'Pressure', kind: 'pressure', series: () => [['Pressure', 'pressure', '--s1']] },
@@ -375,6 +401,9 @@ function renderSettings() {
       <label for="unit-${kind}">${names[kind]}</label>
       <select id="unit-${kind}" data-unit="${kind}">${opts.map(o => `<option${o === settings.units[kind] ? ' selected' : ''}>${o}</option>`).join('')}</select>`).join('')}
     </div>
+    <h2>Appearance</h2>
+    <div class="seg" role="group" aria-label="Appearance">${THEMES.map(([id, label]) =>
+      `<button type="button" data-theme-choice="${id}" aria-pressed="${settings.theme === id}">${label}</button>`).join('')}</div>
     <h2>Put it on your iPhone</h2>
     <div class="card form"><p class="help">Open this page in Safari, tap Share, then Add to Home Screen. It opens full screen like any other app.</p></div>`;
 }
@@ -422,6 +451,12 @@ document.addEventListener('click', e => {
   if (t.dataset.view) go(t.dataset.view);
   else if (t.dataset.go) go(t.dataset.go);
   else if (t.dataset.range) { state.range = t.dataset.range; renderTrends(); }
+  else if (t.dataset.themeChoice) {
+    settings.theme = t.dataset.themeChoice;
+    write(SETTINGS_KEY, settings);
+    applyTheme();
+    document.querySelectorAll('[data-theme-choice]').forEach(b => b.setAttribute('aria-pressed', b === t));
+  }
   else if (t.id === 'refresh') refresh(true);
   else if (t.id === 'connect') connect();
   else if (t.id === 'useDemo') {
@@ -456,6 +491,7 @@ window.addEventListener('resize', () => {
 // ---------- start ----------
 
 if (!isDemo()) Object.assign(state, read(CACHE_KEY) || {});
+applyTheme();
 go('now');
 refresh(true);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
