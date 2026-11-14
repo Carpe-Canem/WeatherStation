@@ -11,7 +11,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Backyard">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<link rel="manifest" href="manifest.webmanifest">
+<script>
+  // A Home Screen app on iPhone has its own storage, apart from Safari's, and opens the manifest's
+  // start_url. Opened from a share link (?station=…&key=…), leave the manifest out so iOS saves this
+  // exact address instead, and the installed app connects on first launch.
+  if (!/[?&]key=/.test(location.search)) document.write('<link rel="manifest" href="manifest.webmanifest">');
+</script>
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="preload" href="fonts/manrope.woff2" as="font" type="font/woff2" crossorigin>
