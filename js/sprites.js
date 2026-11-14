@@ -36,20 +36,32 @@ function leg(hx, hy, a, l1, l2, w, col, foot, fl, back, fold = 0) {
   E(px + 0.9, py, w * 0.62, w * 0.42, foot || col);
 }
 
-// Shared posture: sitting tips the body up around the hips; lying lowers it to the ground.
-// Returns leg adjustments: back/front angle offsets and extra front-leg length.
+// Shared posture: sitting tips the body up steeply around the hips and lowers it until the rump rests
+// on the ground; lying lowers it to the ground. Returns leg adjustments: back/front angle offsets,
+// and reach(), how long a straight front leg from a given shoulder must be to stand on the ground.
 function posture(p, hip, drop, sitDrop, rot = 0.42, lift = 3.6) {
-  const s = p.sit || 0, l = p.lie || 0, base = o.getTransform();
-  o.translate(0, (p.bob || 0) + (p.y || 0) + sitDrop * s + drop * l);
+  const s = p.sit || 0, l = p.lie || 0, base = o.getTransform(), dy = (p.y || 0) + (p.bob || 0);
+  const R = rot * 1.5;
+  o.translate(0, dy + (sitDrop + 6) * s + drop * l);
   if (p.shake) pivot(36, 28, Math.sin((p.t || 0) * 45) * 0.12 * p.shake);
-  if (s) pivot(hip[0], hip[1], -rot * s);
+  if (s) pivot(hip[0], hip[1], -R * s);
   if (p.bow) pivot(22, 30, p.bow);
   const scratch = p.scratch ? -0.9 + Math.sin((p.t || 0) * 32) * 0.45 : 0;
-  return { bk: 1.05 * s + 1.15 * l, fa: -rot * s + 1.35 * l, fx: lift * s, fold: 1.75 * s, scratch, sit: s >= 0.5, base, dy: (p.y || 0) + (p.bob || 0) };
+  const reach = (x, y, w) => {
+    const pt = base.inverse().transformPoint(o.getTransform().transformPoint({ x, y }));
+    return Math.max(4, 44 + dy - pt.y - w * 0.45);
+  };
+  return { bk: 1.05 * s + 1.15 * l, fa: -R * s + 1.35 * l, fx: lift * s, fold: 1.75 * s, scratch, sit: s >= 0.5, base, dy, reach };
+}
+/** Front leg: normal lengths, or when sitting, straight down to exactly the ground. */
+function front(q, hx, hy, a, l1, l2, w, col, foot, fl) {
+  if (q.sit) { const r = q.reach(hx, hy, w); leg(hx, hy, a, r * 0.5, r * 0.5, w, col, foot, fl, 0); }
+  else leg(hx, hy, a, l1, l2, w, col, foot, fl, 0);
 }
 
-// Sitting hind legs, drawn level with the ground rather than in the tipped-up body: a paw resting
-// forward on the ground, and (near side) a round haunch over it. x is the haunch centre, r its radius.
+// Sitting hind legs, drawn level with the ground rather than in the tipped-up body.
+// sitPaw: just a paw resting forward on the ground (far side). haunch: a folded leg (near side):
+// thick thigh down and forward to the knee, shin back to the hock, paw forward along the ground.
 function sitPaw(q, x, len, w, col) {
   o.save(); o.setTransform(q.base); o.translate(0, q.dy);
   L(x, 44 - w * 0.45, x + len, 44 - w * 0.45, w, col);
@@ -57,9 +69,10 @@ function sitPaw(q, x, len, w, col) {
 }
 function haunch(q, x, r, col, shade, foot, len, w) {
   o.save(); o.setTransform(q.base); o.translate(0, q.dy);
-  L(x, 44 - w * 0.45, x + len, 44 - w * 0.45, w, foot);
-  E(x + 0.3, 44 - r + 0.3, r + 0.5, r + 0.3, shade);
-  E(x, 44 - r, r, r, col);
+  const g = 44 - w * 0.45, hip = [x - r * 0.4, 44 - r * 2.1], knee = [x + r * 0.9, 44 - r * 0.9], hock = [x - r * 0.5, g];
+  L(hock[0], g, hock[0] + len, g, w, foot);
+  L(knee[0], knee[1], hock[0], hock[1], w * 1.1, col);
+  L(hip[0], hip[1], knee[0], knee[1], w * 2.2, col);
   o.restore();
 }
 
@@ -69,7 +82,7 @@ function ziggy(p) {
   const q = posture(p, [22, 27], 13, 4, 0.34, 2.4);
   if (q.sit) p.scratch ? haunch(q, 25, 6.4, S, S, '#cfc9bf', 8, 2.4) : sitPaw(q, 27, 8, 2.4, '#cfc9bf');
   else leg(25, 26, b + q.bk, 9.5, 9.6, 2.6, S, '#cfc9bf', 3, 1, q.fold);
-  leg(45, 28, a + q.fa, 8 + q.fx, 8.2 + q.fx, 2.2, S, '#8a5a2c', 4, 0);
+  front(q, 45, 28, a + q.fa, 8, 8.2, 2.2, S, '#8a5a2c', 4);
   const tl = p.tail || 0, te = [11 + 4 * Math.sin(tl), 7 + 2 * Math.cos(tl)];
   Q(19, 19, 10, 18, te[0], te[1], 2, B);
   Q(12 + 0.3 * (te[0] - 11), 12, te[0] + 0.5, te[1] + 3, te[0], te[1], 2, W);
@@ -79,7 +92,7 @@ function ziggy(p) {
   E(50, 25, 3, 5.6, W);
   if (q.sit && !p.scratch) haunch(q, 23, 6.6, B, S, W, 9, 2.6);
   else leg(22, 26, a + q.bk + q.scratch, 9.5, 9.6, 2.8, B, W, 3, 1, q.fold);
-  leg(47, 28, b + q.fa, 8 + q.fx, 8.2 + q.fx, 2.4, B, T, 4, 0);
+  front(q, 47, 28, b + q.fa, 8, 8.2, 2.4, B, T, 4);
   o.save(); o.translate(0.5, -2.5); pivot(50, 18, p.head || 0);
   P([[44, 23], [50, 10], [56, 12], [51, 27]], B); E(55, 11, 5.5, 5, B); E(54, 7.4, 3.6, 0.9, H);
   P([[57, 8.8], [66.5, 11.6], [67.3, 14], [66.4, 15.3], [57, 15.6]], B);
@@ -96,7 +109,7 @@ function frank(p) {
   const q = posture(p, [20, 29], 9, 3, 0.3, 1.6);
   if (q.sit) p.scratch ? haunch(q, 23, 5.4, S, S, WS, 7, 3.2) : sitPaw(q, 25, 7, 3.2, WS);
   else leg(24, 31, b + q.bk, 7, 7.1, 3.6, WS, 0, 0, 1, q.fold);
-  leg(40, 31, a + q.fa, 6.5 + q.fx, 6.5 + q.fx, 3.4, WS, 0, 0, 0);
+  front(q, 40, 31, a + q.fa, 6.5, 6.5, 3.4, WS, 0, 0);
   L(17, 24, 17 + Math.sin(p.tail || 0) * 0.8, 19.5, 3.4, B); // cropped stub
   E(19, 26, 6, 7, S); E(29, 27, 13, 7.5, S); E(40, 28, 6, 7.5, S);
   E(19, 25, 5.6, 6.4, B); E(29, 26, 12.5, 6.8, B); E(40, 27.4, 5.6, 6.9, B); E(28, 20.6, 9, 1.3, H);
@@ -108,7 +121,7 @@ function frank(p) {
   }
   if (q.sit && !p.scratch) haunch(q, 21, 5.6, B, S, W, 8, 3.4);
   else leg(21, 31, a + q.bk + q.scratch, 7, 7.1, 3.9, W, 0, 0, 1, q.fold);
-  leg(42, 31, b + q.fa, 6.5 + q.fx, 6.5 + q.fx, 3.7, W, 0, 0, 0);
+  front(q, 42, 31, b + q.fa, 6.5, 6.5, 3.7, W, 0, 0);
   o.save(); pivot(44, 22, p.head || 0);
   P([[39, 26], [44, 13], [52, 13], [48, 30]], B); E(50, 13, 6, 5.5, B); E(49, 9, 4, 1, H);
   P([[52, 10], [60, 11], [61, 13], [61, 17], [52, 18]], B); E(48.6, 16, 2.6, 2.2, G);
@@ -129,7 +142,7 @@ function minnie(p) {
   const q = posture(p, [23, 32], 12, 3);
   if (q.sit) p.scratch ? haunch(q, 26, 5.6, S, S, S, 7, 2.2) : sitPaw(q, 26, 7, 2.2, S);
   else leg(25, 28, b + q.bk, 7.5, 9.5, 2.4, S, 0, 0, 1, q.fold);
-  leg(39, 29, a + q.fa, 7.5 + q.fx, 7.6 + q.fx, 2.2, S, 0, 0, 0);
+  front(q, 39, 29, a + q.fa, 7.5, 7.6, 2.2, S, 0, 0);
   o.strokeStyle = W; o.lineWidth = 3.4; o.lineCap = 'round'; o.beginPath(); o.moveTo(19, 21); // tail curled into a ring
   o.quadraticCurveTo(14 + Math.sin(p.tail || 0) * 0.8, 15, 16, 10.5); o.quadraticCurveTo(19, 7.5, 22.5, 10); o.quadraticCurveTo(24, 13, 21, 14.5); o.stroke();
   E(23, 25, 6, 5.6, S); E(32, 25, 10.5, 4.8, S); E(41, 25.5, 5.8, 6.4, S);
@@ -137,7 +150,7 @@ function minnie(p) {
   P([[27, 26.5], [37, 29], [37, 27], [28, 25]], W); E(21.5, 25.5, 3.4, 4.8, T);
   if (q.sit && !p.scratch) haunch(q, 24, 5.8, W, S, W, 8, 2.4);
   else leg(22, 28, a + q.bk + q.scratch, 7.5, 9.5, 2.6, W, 0, 0, 1, q.fold);
-  leg(41, 29, b + q.fa, 7.5 + q.fx, 7.6 + q.fx, 2.4, W, 0, 0, 0);
+  front(q, 41, 29, b + q.fa, 7.5, 7.6, 2.4, W, 0, 0);
   o.save(); pivot(42, 22, p.head || 0);
   P([[37.5, 24], [41.5, 12.5], [48, 12.5], [46, 27]], W);
   P([[40.6, 19], [46.6, 19.8], [46.4, 21.2], [40.2, 20.4]], '#141414'); // collar
