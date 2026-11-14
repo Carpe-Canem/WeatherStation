@@ -19,7 +19,7 @@ const write = (k, v) => {
 
 const saved = read(SETTINGS_KEY) || {};
 const settings = {
-  stationId: '', apiKey: '', demo: true, theme: 'system', layout: {}, dogs: true, preview: 'live', loc: null, ...saved,
+  stationId: '', apiKey: '', demo: true, layout: {}, dogs: true, preview: 'live', loc: null, ...saved,
   units: { temp: 'F', wind: 'mph', pressure: 'inHg', rain: 'in', ...(saved.units || {}) },
 };
 settings.preview = 'live'; // the weather preview is only for this visit; never saved
@@ -50,30 +50,26 @@ function linkManifest() {
     document.querySelector('link[rel="manifest"]')?.setAttribute('href', url);
   }).catch(() => {});
 }
-const DATA_KEYS = ['current', 'today', 'hourly', 'daily', 'forecast'];
-const emptyData = () => ({ current: null, today: [], hourly: [], daily: [], forecast: [] });
+const DATA_KEYS = ['current', 'today', 'hourly', 'daily', 'forecast', 'sky'];
+const emptyData = () => ({ current: null, today: [], hourly: [], daily: [], forecast: [], sky: null });
 const state = {
   view: 'now', range: 'today', ...emptyData(),
-  error: null, loading: false, lastCurrent: 0, lastFull: 0, lastForecast: 0,
+  error: null, loading: false, lastCurrent: 0, lastFull: 0, lastForecast: 0, lastSky: 0,
 };
 
 // ---------- appearance and the world behind it ----------
 
-// Auto picks day or night from sunrise and sunset at the station; Day and Night pin it.
-const THEMES = [['system', 'Auto'], ['light', 'Day'], ['dark', 'Night']];
+// Day or night follows sunrise and sunset at the station.
 let world = null;
 
-/** Works out the weather the sky and the dogs react to, then applies theme, sky and dogs. */
+/** Works out the weather the sky and the dogs react to, then applies day/night, sky and dogs. */
 function updateWorld() {
   const c = state.current;
   if (c?.lat != null && (settings.loc?.lat !== c.lat || settings.loc?.lon !== c.lon)) {
     settings.loc = { lat: c.lat, lon: c.lon };
     write(SETTINGS_KEY, settings);
   }
-  const k = conditions(c, pressureDelta(), settings.loc, settings.preview);
-  if (settings.theme === 'light' && k.phase === 'night') k.phase = 'day';
-  if (settings.theme === 'dark') k.phase = 'night';
-  k.night = k.phase === 'night';
+  const k = conditions(c, pressureDelta(), settings.loc, settings.preview, { sky: state.sky, forecast: state.forecast });
   world = k;
   document.documentElement.dataset.theme = k.night ? 'dark' : 'light';
   document.documentElement.classList.toggle('frost', k.frost);
@@ -213,6 +209,11 @@ function refresh(full = true) {
       if (c?.lat != null && Date.now() - state.lastForecast > 30 * MIN) {
         state.forecast = await src.forecast(cfg, c.lat, c.lon).catch(() => state.forecast);
         state.lastForecast = Date.now();
+      }
+      // Sky cover and drizzle from the nearest official observation; the station can't see either.
+      if (c?.lat != null && src.sky && Date.now() - state.lastSky > 10 * MIN) {
+        state.sky = await src.sky(cfg, c.lat, c.lon).catch(() => state.sky);
+        state.lastSky = Date.now();
       }
       state.error = null;
       if (!demoRun) write(CACHE_KEY, Object.fromEntries(DATA_KEYS.map(k => [k, state[k]])));
@@ -455,10 +456,6 @@ function renderSettings() {
       <label for="unit-${kind}">${names[kind]}</label>
       <select id="unit-${kind}" data-unit="${kind}">${opts.map(o => `<option${o === settings.units[kind] ? ' selected' : ''}>${o}</option>`).join('')}</select>`).join('')}
     </div>
-    <h2>Appearance</h2>
-    <div class="seg" role="group" aria-label="Appearance">${THEMES.map(([id, label]) =>
-      `<button type="button" data-theme-choice="${id}" aria-pressed="${settings.theme === id}">${label}</button>`).join('')}</div>
-    <p class="note">Auto switches between day and night at sunrise and sunset where your station is.</p>
     <h2>Ziggy, Frank and Minnie</h2>
     <div class="card form">
       <div class="seg" role="group" aria-label="Dogs">${[[true, 'Show the dogs'], [false, 'Hide them']].map(([v, label]) =>
@@ -533,12 +530,6 @@ document.addEventListener('click', e => {
   if (t.dataset.view) go(t.dataset.view);
   else if (t.dataset.go) go(t.dataset.go);
   else if (t.dataset.range) { state.range = t.dataset.range; renderTrends(); }
-  else if (t.dataset.themeChoice) {
-    settings.theme = t.dataset.themeChoice;
-    write(SETTINGS_KEY, settings);
-    updateWorld();
-    document.querySelectorAll('[data-theme-choice]').forEach(b => b.setAttribute('aria-pressed', b === t));
-  }
   else if (t.dataset.dogs) {
     settings.dogs = t.dataset.dogs === 'true';
     write(SETTINGS_KEY, settings);
