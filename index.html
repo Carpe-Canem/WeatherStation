@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Backyard Weather</title>
 <meta name="description" content="A cleaner dashboard for a home weather station.">
-<meta name="theme-color" content="#f3efe6" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#14120f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#9ed3f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101a33" media="(prefers-color-scheme: dark)">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Backyard">
@@ -14,14 +14,33 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="preload" href="fonts/newsreader.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/manrope.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="styles.css">
 <script>
-  // Apply a saved light/dark choice before first paint so the page never flashes.
-  try { const t = JSON.parse(localStorage.getItem('backyard.settings.v1'))?.theme; if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
+  // Pick day or night before first paint so the page never flashes. Mirrors updateWorld() in app.js:
+  // Day and Night pin it; Auto uses sunrise and sunset at the last known station position.
+  try {
+    const s = JSON.parse(localStorage.getItem('backyard.settings.v1')) || {}, now = new Date();
+    let night;
+    if (s.theme === 'light') night = false;
+    else if (s.theme === 'dark') night = true;
+    else if (s.loc) {
+      const base = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+      const g = 2 * Math.PI / 365 * (Math.round((base - Date.UTC(now.getFullYear(), 0, 0)) / 864e5) - 1);
+      const dec = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+      const eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+      const r = s.loc.lat * Math.PI / 180, c = Math.cos(1.5853) / (Math.cos(r) * Math.cos(dec)) - Math.tan(r) * Math.tan(dec);
+      const ha = Math.acos(Math.max(-1, Math.min(1, c))) * 720 / Math.PI, noon = 720 - 4 * s.loc.lon - eqt;
+      const m = (now - base) / 6e4;
+      night = m < noon - ha - 40 || m > noon + ha + 40;
+    } else night = now.getHours() < 6 || now.getHours() >= 20;
+    document.documentElement.dataset.theme = night ? 'dark' : 'light';
+  } catch {}
 </script>
 </head>
 <body>
+<canvas id="sky" aria-hidden="true"></canvas>
+<div id="pack" aria-hidden="true"></div>
 <header class="top">
   <div class="top-text">
     <h1 id="stationName">Backyard</h1>

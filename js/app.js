@@ -2,6 +2,10 @@ import { makeUnits, UNIT_CHOICES, fixed } from './units.js';
 import * as wu from './wu.js';
 import * as demo from './demo.js';
 import { lineChart, sparkline } from './charts.js';
+import { sortable, arrange, isDragging } from './reorder.js';
+import { conditions, PREVIEWS } from './conditions.js';
+import { initSky, setSky } from './sky.js';
+import { initDogs, setDogs } from './dogs.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -9,13 +13,16 @@ const MIN = 6e4, HOUR = 36e5, DAY = 864e5;
 const SETTINGS_KEY = 'backyard.settings.v1', CACHE_KEY = 'backyard.cache.v1';
 
 const read = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
-const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable */ } };
+const write = (k, v) => {
+  try { localStorage.setItem(k, JSON.stringify(v, (key, val) => (key === 'preview' ? undefined : val))); } catch { /* storage unavailable */ }
+};
 
 const saved = read(SETTINGS_KEY) || {};
 const settings = {
-  stationId: '', apiKey: '', demo: true, theme: 'system', ...saved,
+  stationId: '', apiKey: '', demo: true, theme: 'system', layout: {}, dogs: true, preview: 'live', loc: null, ...saved,
   units: { temp: 'F', wind: 'mph', pressure: 'inHg', rain: 'in', ...(saved.units || {}) },
 };
+settings.preview = 'live'; // the weather preview is only for this visit; never saved
 const DATA_KEYS = ['current', 'today', 'hourly', 'daily', 'forecast'];
 const emptyData = () => ({ current: null, today: [], hourly: [], daily: [], forecast: [] });
 const state = {
@@ -23,19 +30,32 @@ const state = {
   error: null, loading: false, lastCurrent: 0, lastFull: 0, lastForecast: 0,
 };
 
-// ---------- appearance ----------
+// ---------- appearance and the world behind it ----------
 
-const THEMES = [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']];
-const dark = matchMedia('(prefers-color-scheme: dark)');
-function applyTheme() {
-  const t = settings.theme;
-  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
-  else delete document.documentElement.dataset.theme;
+// Auto picks day or night from sunrise and sunset at the station; Day and Night pin it.
+const THEMES = [['system', 'Auto'], ['light', 'Day'], ['dark', 'Night']];
+let world = null;
+
+/** Works out the weather the sky and the dogs react to, then applies theme, sky and dogs. */
+function updateWorld() {
+  const c = state.current;
+  if (c?.lat != null && (settings.loc?.lat !== c.lat || settings.loc?.lon !== c.lon)) {
+    settings.loc = { lat: c.lat, lon: c.lon };
+    write(SETTINGS_KEY, settings);
+  }
+  const k = conditions(c, pressureDelta(), settings.loc, settings.preview);
+  if (settings.theme === 'light' && k.phase === 'night') k.phase = 'day';
+  if (settings.theme === 'dark') k.phase = 'night';
+  k.night = k.phase === 'night';
+  world = k;
+  document.documentElement.dataset.theme = k.night ? 'dark' : 'light';
+  document.documentElement.classList.toggle('frost', k.frost);
   // Keep the browser and status bar in step with the page.
   const bg = getComputedStyle(document.documentElement).getPropertyValue('--page').trim();
   document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', bg));
+  setSky(k);
+  setDogs(settings.dogs ? k : null);
 }
-dark.addEventListener('change', () => { applyTheme(); if (state.view === 'trends') renderTrends(); });
 
 const isDemo = () => settings.demo || !settings.stationId || !settings.apiKey;
 const units = () => makeUnits(settings.units);
@@ -210,13 +230,13 @@ function renderBanner() {
   }
 }
 
-const tile = (label, value, unit, sub, spark) => `
-  <div class="tile">
+const tile = (id, label, value, unit, sub, spark) => ({ id, html: `
+  <div class="tile" data-id="${id}">
     <div class="label">${label}</div>
     <div class="value">${value}${unit ? `<span class="unit">${unit}</span>` : ''}</div>
     ${sub ? `<div class="sub">${sub}</div>` : ''}
     ${spark || ''}
-  </div>`;
+  </div>` });
 
 function renderNow() {
   const el = $('#view-now'), c = state.current, u = units();
@@ -233,7 +253,7 @@ function renderNow() {
 
   const tiles = [];
   if (c.humidity != null) {
-    tiles.push(tile('Humidity', Math.round(c.humidity), '%', c.dewpt != null ? `Dew point ${u.fmt('temp', c.dewpt)}` : '', spark('humidity')));
+    tiles.push(tile('humidity', 'Humidity', Math.round(c.humidity), '%', c.dewpt != null ? `Dew point ${u.fmt('temp', c.dewpt)}` : '', spark('humidity')));
   }
   if (c.wind != null) {
     const calm = c.wind < 0.5;
@@ -243,7 +263,7 @@ function renderNow() {
     if (!calm && c.windDir != null) parts.push(`From ${cardinal(c.windDir)}`);
     if (c.gust != null && c.gust > c.wind) parts.push(`gusts ${u.fmt('wind', c.gust)}`);
     const sub = parts.join(', ');
-    tiles.push(tile('Wind', calm ? 'Calm' : u.num('wind', c.wind), calm ? '' : u.label('wind') + arrow,
+    tiles.push(tile('wind', 'Wind', calm ? 'Calm' : u.num('wind', c.wind), calm ? '' : u.label('wind') + arrow,
       sub.charAt(0).toUpperCase() + sub.slice(1), spark('wind')));
   }
   if (c.pressure != null) {
@@ -254,17 +274,17 @@ function renderNow() {
       sub = Math.abs(dp) < 0.02 ? 'Steady'
         : `${dp > 0 ? '↗ Rising' : '↘ Falling'}, ${dp > 0 ? '+' : ''}${fixed(shown, d)} in 3 h`;
     }
-    tiles.push(tile('Pressure', u.num('pressure', c.pressure), u.label('pressure'), sub, spark('pressure')));
+    tiles.push(tile('pressure', 'Pressure', u.num('pressure', c.pressure), u.label('pressure'), sub, spark('pressure')));
   }
   if (c.rain != null) {
     const days = state.daily.slice(-7);
     const week = days.reduce((a, p) => a + (p.rain || 0), 0);
     const sub = c.rainRate > 0 ? `Falling at ${u.fmt('rain', c.rainRate)} per hour`
       : days.length > 1 ? `${u.fmt('rain', week)} over ${days.length} days` : '';
-    tiles.push(tile('Rain today', u.num('rain', c.rain), u.label('rain'), sub, spark('rain')));
+    tiles.push(tile('rain', 'Rain today', u.num('rain', c.rain), u.label('rain'), sub, spark('rain')));
   }
   if (c.uv != null && hasUv) {
-    tiles.push(tile('UV index', Math.round(c.uv), '', uvBand(c.uv) + (c.solar != null ? `, solar ${Math.round(c.solar)} W/m²` : ''), spark('uv')));
+    tiles.push(tile('uv', 'UV index', Math.round(c.uv), '', uvBand(c.uv) + (c.solar != null ? `, solar ${Math.round(c.solar)} W/m²` : ''), spark('uv')));
   }
 
   const meta = [];
@@ -291,7 +311,7 @@ function renderNow() {
       <div class="hero-meta">${meta.map(s => `<span>${esc(s)}</span>`).join('')}</div>
       ${note ? `<p class="insight">${esc(note)}</p>` : ''}
     </div>
-    <div class="tiles">${tiles.join('')}</div>
+    <div class="tiles">${arrange(tiles, settings.layout.now).map(t => t.html).join('')}</div>
     ${fc}`;
 }
 
@@ -338,6 +358,7 @@ function renderTrends() {
     const minSpan = ch.kind ? Math.abs(u.delta(ch.kind, MIN_SPAN[ch.id])) : MIN_SPAN[ch.id];
     return { ch, bars, series, summary, show, minSpan, times: data.map(p => p.t), timeFmt: bars ? dayFmt : timeFmt };
   }).filter(Boolean);
+  const ordered = arrange(specs, settings.layout.trends, s => s.ch.id);
 
   // A newly connected station has little history; say so rather than show near-empty charts unexplained.
   const thin = r === 'today' ? state.today.length < 12 : r === '7d' ? state.hourly.length < 24 : state.daily.length < 3;
@@ -364,11 +385,11 @@ function renderTrends() {
       `<button type="button" data-range="${id}" aria-pressed="${id === r}">${label}</button>`).join('')}</div>
     ${building}
     ${specs.length ? '' : `<p class="empty">${state.loading ? 'Loading' : 'No history for this period yet.'}</p>`}
-    ${specs.map(s => `
-      <section class="card chart-card">
+    <div class="charts">${ordered.map(s => `
+      <section class="card chart-card" data-id="${s.ch.id}">
         <header><h3>${s.ch.title}${s.ch.kind ? `<span class="unit">${u.label(s.ch.kind)}</span>` : s.ch.id === 'humidity' ? '<span class="unit">%</span>' : ''}</h3><span class="summary">${esc(s.summary)}</span></header>
         <div class="chart" id="chart-${s.ch.id}"></div>
-      </section>`).join('')}
+      </section>`).join('')}</div>
     ${table}`;
 
   for (const s of specs) {
@@ -404,15 +425,42 @@ function renderSettings() {
     <h2>Appearance</h2>
     <div class="seg" role="group" aria-label="Appearance">${THEMES.map(([id, label]) =>
       `<button type="button" data-theme-choice="${id}" aria-pressed="${settings.theme === id}">${label}</button>`).join('')}</div>
+    <p class="note">Auto switches between day and night at sunrise and sunset where your station is.</p>
+    <h2>Ziggy, Frank and Minnie</h2>
+    <div class="card form">
+      <div class="seg" role="group" aria-label="Dogs">${[[true, 'Show the dogs'], [false, 'Hide them']].map(([v, label]) =>
+        `<button type="button" data-dogs="${v}" aria-pressed="${settings.dogs === v}">${label}</button>`).join('')}</div>
+      <p class="help">They wander the screen and react to your station: rain, gusts, cold, heat, sun and falling pressure. Tap one to see what it does.</p>
+      <label for="preview">Weather preview</label>
+      <select id="preview">${PREVIEWS.map(([id, label]) => `<option value="${id}"${settings.preview === id ? ' selected' : ''}>${label}</option>`).join('')}</select>
+      <p class="help" style="margin-top:8px">Shows the sky and the dogs in other weather. Your readings are not changed.</p>
+    </div>
+    <h2>Layout</h2>
+    <div class="card form">
+      <p class="help">Rearrange the readings on Now and the charts on Trends. On a phone, press and hold a tile or a chart title, then drag. With a mouse, just drag.</p>
+      <div class="row"><button class="btn ghost small" type="button" id="resetLayout">Reset layout</button></div>
+    </div>
     <h2>Put it on your iPhone</h2>
     <div class="card form"><p class="help">Open this page in Safari, tap Share, then Add to Home Screen. It opens full screen like any other app.</p></div>`;
 }
 
+// Saves a new order. Ids not currently shown (e.g. UV before the sensor reports) keep their old rank.
+function saveOrder(view, shown) {
+  const old = settings.layout[view] || [];
+  settings.layout[view] = [...shown, ...old.filter(id => !shown.includes(id))];
+  write(SETTINGS_KEY, settings);
+}
+
+let renderPending = false;
 function render() {
+  // Never swap the cards out from under a drag; catch up once it's dropped.
+  if (isDragging()) { renderPending = true; return; }
+  renderPending = false;
   renderStatus();
   renderBanner();
   if (state.view === 'now') renderNow();
   if (state.view === 'trends') renderTrends();
+  updateWorld();
 }
 
 function go(view) {
@@ -454,8 +502,19 @@ document.addEventListener('click', e => {
   else if (t.dataset.themeChoice) {
     settings.theme = t.dataset.themeChoice;
     write(SETTINGS_KEY, settings);
-    applyTheme();
+    updateWorld();
     document.querySelectorAll('[data-theme-choice]').forEach(b => b.setAttribute('aria-pressed', b === t));
+  }
+  else if (t.dataset.dogs) {
+    settings.dogs = t.dataset.dogs === 'true';
+    write(SETTINGS_KEY, settings);
+    updateWorld();
+    document.querySelectorAll('[data-dogs]').forEach(b => b.setAttribute('aria-pressed', b === t));
+  }
+  else if (t.id === 'resetLayout') {
+    settings.layout = {};
+    write(SETTINGS_KEY, settings);
+    t.textContent = 'Layout reset';
   }
   else if (t.id === 'refresh') refresh(true);
   else if (t.id === 'connect') connect();
@@ -468,6 +527,11 @@ document.addEventListener('click', e => {
 });
 
 document.addEventListener('change', e => {
+  if (e.target.id === 'preview') {
+    settings.preview = e.target.value;
+    updateWorld();
+    return;
+  }
   const kind = e.target.dataset?.unit;
   if (!kind) return;
   settings.units[kind] = e.target.value;
@@ -476,6 +540,7 @@ document.addEventListener('change', e => {
 
 function tick() {
   renderStatus();
+  updateWorld(); // sunrise and sunset move the sky even between readings
   if (document.hidden || Date.now() - state.lastCurrent < 2 * MIN) return;
   refresh(Date.now() - state.lastFull > 5 * MIN);
 }
@@ -491,7 +556,12 @@ window.addEventListener('resize', () => {
 // ---------- start ----------
 
 if (!isDemo()) Object.assign(state, read(CACHE_KEY) || {});
-applyTheme();
+sortable($('#view-now'), { item: '.tile', onDrop: ids => saveOrder('now', ids) });
+sortable($('#view-trends'), { item: '.chart-card', handle: 'header', onDrop: ids => saveOrder('trends', ids) });
+addEventListener('pointerup', () => setTimeout(() => { if (renderPending) render(); }));
+
+initSky();
+initDogs({ isDragging });
 go('now');
 refresh(true);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
