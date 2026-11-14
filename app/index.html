@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Backyard Weather</title>
+<meta name="description" content="A cleaner dashboard for a home weather station.">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Backyard">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-text">
+    <h1 id="stationName">Backyard</h1>
+    <p class="status" id="status"><span class="dot" aria-hidden="true"></span><span id="statusText">Loading</span></p>
+  </div>
+  <button class="icon-btn" id="refresh" type="button" aria-label="Refresh">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>
+  </button>
+</header>
+
+<main>
+  <div id="banner" class="banner" hidden></div>
+  <section id="view-now" class="view" aria-label="Current conditions"></section>
+  <section id="view-trends" class="view" aria-label="Trends" hidden></section>
+  <section id="view-settings" class="view" aria-label="Settings" hidden></section>
+</main>
+
+<nav class="tabs" aria-label="Sections">
+  <button type="button" data-view="now" aria-current="page">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>
+    <span>Now</span>
+  </button>
+  <button type="button" data-view="trends">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20h18M4 15l5-5 4 3 7-8"/></svg>
+    <span>Trends</span>
+  </button>
+  <button type="button" data-view="settings">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+    <span>Settings</span>
+  </button>
+</nav>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
