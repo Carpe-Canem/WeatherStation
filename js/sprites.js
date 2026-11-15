@@ -5,6 +5,7 @@
 //   t (seconds, for fast wiggles), ph/amp (gait phase and stride), bob, y, tail, head, ear,
 //   mouth, tongue, bow, sit (0-1), lie (0-1), eyes (0 = closed), sweater, scratch, shake, puff (0-1), splash (0-1),
 //   legF/legB (extra swing of the front/back legs, radians, + is forward: dangling and falling)
+// Holiday outfits (outfits.js) are stamped on as pixel art, following the head or body (see stamp()).
 
 export const SIZE = { z: 0.9, f: 0.75, m: 0.64 }; // Ziggy is the biggest, Minnie the smallest
 const OUT = '#141012';
@@ -20,6 +21,7 @@ const ORGB = rgb(OUT);
 export const NOSE = { z: [67, 10], f: [61, 12], m: [58, 13] };
 
 let o; // drawing context for the dog being drawn
+const XF = {}; // the body and head transforms of the dog being drawn, for its outfit
 const E = (x, y, rx, ry, c) => { o.fillStyle = c; o.beginPath(); o.ellipse(x, y, rx, ry, 0, 0, 7); o.fill(); };
 const P = (pts, c) => { o.fillStyle = c; o.beginPath(); pts.forEach(([x, y], i) => (i ? o.lineTo(x, y) : o.moveTo(x, y))); o.closePath(); o.fill(); };
 const L = (a, b, c2, d, w, c) => { o.strokeStyle = c; o.lineWidth = w; o.lineCap = 'round'; o.beginPath(); o.moveTo(a, b); o.lineTo(c2, d); o.stroke(); };
@@ -80,7 +82,7 @@ function haunch(q, x, r, col, shade, foot, len, w) {
 function ziggy(p) {
   const B = '#1f1f22', S = '#121214', H = '#3a3a40', W = '#f2efe8', T = '#b5773c';
   const a = Math.sin(p.ph || 0) * (p.amp || 0), b = -a;
-  const q = posture(p, [22, 27], 13, 4, 0.34, 2.4);
+  const q = posture(p, [22, 27], 13, 4, 0.34, 2.4); XF.body = o.getTransform();
   if (q.sit) p.scratch ? haunch(q, 25, 6.4, S, S, '#cfc9bf', 8, 2.4) : sitPaw(q, 27, 8, 2.4, '#cfc9bf');
   else leg(25, 26, b + q.bk, 9.5, 9.6, 2.6, S, '#cfc9bf', 3, 1, q.fold);
   front(q, 45, 28, a + q.fa, 8, 8.2, 2.2, S, '#8a5a2c', 4);
@@ -94,7 +96,7 @@ function ziggy(p) {
   if (q.sit && !p.scratch) haunch(q, 23, 6.6, B, S, W, 9, 2.6);
   else leg(22, 26, a + q.bk + q.scratch, 9.5, 9.6, 2.8, B, W, 3, 1, q.fold);
   front(q, 47, 28, b + q.fa, 8, 8.2, 2.4, B, T, 4);
-  o.save(); o.translate(0.5, -2.5); pivot(50, 18, p.head || 0);
+  o.save(); o.translate(0.5, -2.5); pivot(50, 18, p.head || 0); XF.head = o.getTransform();
   P([[44, 23], [50, 10], [56, 12], [51, 27]], B); E(55, 11, 5.5, 5, B); E(54, 7.4, 3.6, 0.9, H);
   P([[57, 8.8], [66.5, 11.6], [67.3, 14], [66.4, 15.3], [57, 15.6]], B);
   P([[59.5, 14.8], [66.2, 14.6], [64.6, 16.2], [59, 16.4]], W); // white only on the chin and lower lip
@@ -107,7 +109,7 @@ function ziggy(p) {
 function frank(p) {
   const B = '#202022', S = '#131315', H = '#45454a', W = '#ecebe7', WS = '#c4c2bd', G = '#8d8d8b';
   const a = Math.sin(p.ph || 0) * (p.amp || 0), b = -a;
-  const q = posture(p, [20, 29], 9, 3, 0.3, 1.6);
+  const q = posture(p, [20, 29], 9, 3, 0.3, 1.6); XF.body = o.getTransform();
   if (q.sit) p.scratch ? haunch(q, 23, 5.4, S, S, WS, 7, 3.2) : sitPaw(q, 25, 7, 3.2, WS);
   else leg(24, 31, b + q.bk, 7, 7.1, 3.6, WS, 0, 0, 1, q.fold);
   front(q, 40, 31, a + q.fa, 6.5, 6.5, 3.4, WS, 0, 0);
@@ -123,7 +125,7 @@ function frank(p) {
   if (q.sit && !p.scratch) haunch(q, 21, 5.6, B, S, W, 8, 3.4);
   else leg(21, 31, a + q.bk + q.scratch, 7, 7.1, 3.9, W, 0, 0, 1, q.fold);
   front(q, 42, 31, b + q.fa, 6.5, 6.5, 3.7, W, 0, 0);
-  o.save(); pivot(44, 22, p.head || 0);
+  o.save(); pivot(44, 22, p.head || 0); XF.head = o.getTransform();
   P([[39, 26], [44, 13], [52, 13], [48, 30]], B); E(50, 13, 6, 5.5, B); E(49, 9, 4, 1, H);
   P([[52, 10], [60, 11], [61, 13], [61, 17], [52, 18]], B); E(48.6, 16, 2.6, 2.2, G);
   P([[49, 7], [51, 7], [55.5, 11], [53.5, 12]], W);
@@ -140,7 +142,7 @@ function frank(p) {
 function minnie(p) {
   const W = '#f5f1e8', S = '#d6cfc2', T = '#d3a16a', TD = '#b98550';
   const a = Math.sin(p.ph || 0) * (p.amp || 0), b = -a;
-  const q = posture(p, [23, 32], 12, 3);
+  const q = posture(p, [23, 32], 12, 3); XF.body = o.getTransform();
   if (q.sit) p.scratch ? haunch(q, 26, 5.6, S, S, S, 7, 2.2) : sitPaw(q, 26, 7, 2.2, S);
   else leg(25, 28, b + q.bk, 7.5, 9.5, 2.4, S, 0, 0, 1, q.fold);
   front(q, 39, 29, a + q.fa, 7.5, 7.6, 2.2, S, 0, 0);
@@ -152,7 +154,7 @@ function minnie(p) {
   if (q.sit && !p.scratch) haunch(q, 24, 5.8, W, S, W, 8, 2.4);
   else leg(22, 28, a + q.bk + q.scratch, 7.5, 9.5, 2.6, W, 0, 0, 1, q.fold);
   front(q, 41, 29, b + q.fa, 7.5, 7.6, 2.4, W, 0, 0);
-  o.save(); pivot(42, 22, p.head || 0);
+  o.save(); pivot(42, 22, p.head || 0); XF.head = o.getTransform();
   P([[37.5, 24], [41.5, 12.5], [48, 12.5], [46, 27]], W);
   P([[40.6, 19], [46.6, 19.8], [46.4, 21.2], [40.2, 20.4]], '#141414'); // collar
   P([[43.2, 9.6], [42.2, 3.2], [45.4, 8.6]], S);
@@ -181,19 +183,66 @@ export function mouthPoint(p, k = 'z') {
 const DRAW = { z: ziggy, f: frank, m: minnie };
 const work = {};
 
-/** Buffer size in sprite pixels for a dog, and where its feet touch the ground. */
-const PAD = 8; // headroom above the drawing, for sitting up and hopping
-export const box = k => ({ w: Math.ceil(72 * SIZE[k]), h: Math.ceil((48 + PAD) * SIZE[k]), footY: Math.round((44 + PAD) * SIZE[k]), cx: Math.round(40 * SIZE[k]) });
+// Headroom above the drawing, for sitting up, hopping and holiday hats: 8 drawing units, plus LIFT whole sprite
+// pixels added as rows above (see render()), which makes PAD at least 13. Ziggy needs the most: his snow
+// pounce leaps 16 units with his feathers on.
+const LIFT = { z: 10, f: 4, m: 4 };
+/** Headroom per dog, in drawing units: a point at drawing y sits at canvas y (y + PAD[k]) * SIZE[k]. */
+export const PAD = Object.fromEntries(Object.keys(SIZE).map(k => [k, 8 + LIFT[k] / SIZE[k]]));
 
-/** Draws a dog in a pose onto ctx (a canvas sized by box()). */
-export function render(k, pose, out) {
-  const { w, h } = box(k), sc = SIZE[k];
-  if (!work[k]) { const c = document.createElement('canvas'); c.width = w; c.height = h; work[k] = c.getContext('2d', { willReadFrequently: true }); }
-  o = work[k];
-  o.setTransform(1, 0, 0, 1, 0, 0);
-  o.clearRect(0, 0, w, h);
-  o.save(); o.scale(sc, sc); o.translate(0, PAD); DRAW[k](pose); o.restore();
-  const id = o.getImageData(0, 0, w, h), d = id.data, pal = PRGB[k], mask = new Uint8Array(w * h);
+/** Buffer size in sprite pixels for a dog, and where its feet touch the ground.
+ *  lift: the sprite pixels of headroom added for hats, above what the dogs had before. */
+export const box = k => {
+  const s = SIZE[k], l = LIFT[k];
+  return { w: Math.ceil(72 * s), h: Math.ceil(56 * s) + l, footY: Math.round(52 * s) + l, cx: Math.round(40 * s), lift: l };
+};
+
+// Stamps one outfit part (see outfits.js) into the snapped pixels: the art follows its frame's transform,
+// turning with it in whole sprite pixels, and marks the mask so the outline goes round it too.
+const RGB = new WeakMap();
+function stamp(part, d, mask, w, h, dy) {
+  const m = XF[part.frame || 'head'];
+  if (!m) return;
+  let pal = RGB.get(part);
+  if (!pal) RGB.set(part, (pal = Object.fromEntries(Object.entries(part.pal).map(([ch, c]) => [ch, rgb(c)]))));
+  const a = m.transformPoint({ x: part.at[0], y: part.at[1] });
+  a.y += dy; // the rows the drawing was moved down by
+  let th = Math.atan2(m.b, m.a) * (part.turn ?? 1);
+  if (Math.abs(th) < 0.07) th = 0; // dead level: keep the art pixel-perfect
+  const c = Math.cos(th), s = Math.sin(th), rows = part.rows, [px, py] = part.pivot;
+  const ax = th ? a.x : Math.round(a.x * 2) / 2, ay = th ? a.y : Math.round(a.y * 2) / 2;
+  const R = Math.ceil(Math.hypot(rows[0].length, rows.length)) + 1, x0 = Math.floor(ax), y0 = Math.floor(ay);
+  for (let Y = Math.max(0, y0 - R); Y <= Math.min(h - 1, y0 + R); Y++) for (let X = Math.max(0, x0 - R); X <= Math.min(w - 1, x0 + R); X++) {
+    const rx = X + 0.5 - ax, ry = Y + 0.5 - ay;
+    const ch = rows[Math.floor(-s * rx + c * ry + py)]?.[Math.floor(c * rx + s * ry + px)];
+    if (!ch || ch === '.') continue;
+    const i = Y * w + X;
+    if (part.behind && mask[i]) continue;
+    const col = pal[ch], j = i * 4;
+    d[j] = col[0]; d[j + 1] = col[1]; d[j + 2] = col[2]; d[j + 3] = 255;
+    mask[i] = 1;
+  }
+}
+
+/** Draws a dog in a pose onto ctx (a canvas sized by box()), wearing parts (an outfit's parts, if any). */
+export function render(k, pose, out, parts) {
+  const { w, h, lift } = box(k), sc = SIZE[k];
+  // The dog is drawn on a canvas the size it always had, then moved down `lift` whole rows into the headroom:
+  // drawing it lower down, or on a taller canvas, rounds some edges differently and changes its pixels.
+  // Only a pose that reaches the top edge is drawn again, on the taller canvas, so nothing is cut off.
+  if (!work[k]) work[k] = [h - lift, h].map(ch => Object.assign(document.createElement('canvas'), { width: w, height: ch }).getContext('2d', { willReadFrequently: true }));
+  let id, dy;
+  for (const top of [0, lift]) {
+    o = work[k][top ? 1 : 0];
+    o.setTransform(1, 0, 0, 1, 0, 0);
+    o.clearRect(0, 0, w, h);
+    XF.body = XF.head = null;
+    o.save(); o.translate(0, top); o.scale(sc, sc); o.translate(0, 8); DRAW[k](pose); o.restore();
+    const got = o.getImageData(0, 0, w, h - lift + top);
+    if (top) { id = got; dy = 0; break; }
+    if (!got.data.subarray(0, w * 4).some((v, i) => i % 4 === 3 && v)) { id = new ImageData(w, h); id.data.set(got.data, lift * w * 4); dy = lift; break; }
+  }
+  const d = id.data, pal = PRGB[k], mask = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i++) {
     const j = i * 4;
     if (d[j + 3] < 110) { d[j + 3] = 0; continue; }
@@ -205,6 +254,7 @@ export function render(k, pose, out) {
     }
     d[j] = pal[best][0]; d[j + 1] = pal[best][1]; d[j + 2] = pal[best][2]; d[j + 3] = 255;
   }
+  if (parts) for (const part of parts) stamp(part, d, mask, w, h, dy);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x;
     if (mask[i]) continue;
@@ -217,11 +267,11 @@ export function render(k, pose, out) {
   if (pose.puff) {
     const [nx, ny] = NOSE[k], f = pose.puff;
     out.fillStyle = `rgba(235,242,250,${(1 - f).toFixed(2)})`;
-    const x = Math.round((nx + 2 + f * 6) * sc), y = Math.round((ny + PAD - f * 5) * sc), r = Math.round(1 + f * 2);
+    const x = Math.round((nx + 2 + f * 6) * sc), y = Math.round((ny + 8 - f * 5) * sc) + lift, r = Math.round(1 + f * 2);
     out.fillRect(x, y, r * 2, r); out.fillRect(x + 1, y - 1, r, r * 2);
   }
   if (pose.splash) {
-    const f = pose.splash, y0 = Math.round((44 + PAD) * sc);
+    const f = pose.splash, y0 = Math.round(52 * sc) + lift;
     out.fillStyle = '#9cc6ee';
     for (const [x, dx] of [[24, -3], [30, 2], [44, -2], [50, 3]]) {
       const px = Math.round((x + dx * f * 2) * sc), py = Math.round(y0 - Math.sin(f * Math.PI) * 6 * sc);
