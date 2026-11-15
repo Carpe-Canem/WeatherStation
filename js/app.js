@@ -329,24 +329,19 @@ function renderNow() {
       : days.length > 1 ? `${u.fmt('rain', week)} over ${days.length} days` : '';
     tiles.push(tile('rain', 'Rain today', u.num('rain', c.rain), u.label('rain'), sub, spark('rain')));
   }
-  if (c.uv != null && hasUv) {
-    tiles.push(tile('uv', 'UV index', Math.round(c.uv), '', uvBand(c.uv) + (c.solar != null ? `, solar ${Math.round(c.solar)} W/m²` : ''), spark('uv')));
-  }
-
   const meta = [];
   if (c.feels != null) meta.push(`Feels like ${u.fmt('temp', c.feels)}`);
   if (hi) meta.push(`High ${u.fmt('temp', hi.v)} at ${timeShort(hi.t)}`);
   if (lo) meta.push(`Low ${u.fmt('temp', lo.v)} at ${timeShort(lo.t)}`);
+  if (c.uv != null && hasUv) meta.push(`UV ${Math.round(c.uv)}, ${uvBand(c.uv).toLowerCase()}`);
   const note = insight(c, u);
 
   const fc = state.forecast.length ? `
-    <h2>Forecast</h2>
-    <div class="card forecast">${state.forecast.map(d => `
+    <div class="card forecast" aria-label="Forecast">${state.forecast.map(d => `
       <div class="fday" title="${esc(d.phrase)}">
         <div class="dow">${esc(d.dow)}</div>
         <div class="ficon" role="img" aria-label="${esc(d.phrase)}">${forecastIcon(d.icon)}</div>
-        <div class="fhi">${u.fmt('temp', d.hi ?? (d.dow === 'Today' ? hi?.v : null))}</div>
-        <div class="flo">${u.fmt('temp', d.lo)}</div>
+        <div class="fhl"><span class="fhi">${u.fmt('temp', d.hi ?? (d.dow === 'Today' ? hi?.v : null))}</span> <span class="flo">${u.fmt('temp', d.lo)}</span></div>
         <div class="fpop">${d.pop != null ? `${d.pop}% rain` : ''}</div>
       </div>`).join('')}
     </div>` : '';
