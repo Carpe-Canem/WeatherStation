@@ -7,10 +7,14 @@
 // and smoke rises from the chimney of the little house on the far hill. After a snowfall the snow lies
 // for days, melting away in patches, with a snowman on the lawn; puddles freeze on icy days after rain
 // (conditions.js keeps track of both: k.snowLying, k.snowman, k.ice).
+// In spring the blossom comes off the tree in drifting petals, wildflowers come up in the lawn, then
+// dandelions, which go to seed (the dogs blow the puffs apart: see dogs.js), and robins drop in to hop
+// about the lawn. After rain, while the sun's out, a rainbow stands over the hills (k.rainbow).
 // Drawn at a low resolution and scaled up with crisp pixels. Frame rate drops when nothing moves fast.
 //
-// Debug: ?season= and ?seasonat= (seasons.js); ?geese brings the geese over every 40 s or so;
-// ?snowlying=0..1 and ?ice (conditions.js), or the Settings previews "After snow" and "Icy puddles".
+// Debug: ?season= and ?seasonat= (seasons.js); ?geese brings the geese over every 40 s or so, and
+// ?robins the robins (in spring); ?snowlying=0..1, ?ice and ?rainbow (conditions.js), or the Settings
+// previews "After snow", "Icy puddles" and "Rainbow". ?season=spring&seasonat=0.6 has the most puffs.
 
 import { seasonNow, yearly, ramp, mix } from './seasons.js';
 
@@ -163,7 +167,35 @@ const SNOWMAN = [
 ];
 const SNOWMAN_X = 41, SNOWMAN_COLS = { w: '#f4f7fb', s: '#c9d6e6', k: '#2a2a33', o: '#f08a24', r: '#d23b3b', b: '#6b4a2b' };
 
+// ---------- spring ----------
+// (Laid out with hash(), and anything at random uses Math.random(): nothing here draws from r().)
+/** How much blossom is coming off the tree, 0 to 1: late March to mid-April. */
+const petalling = day => ramp(day, 84, 92) * (1 - ramp(day, 108, 118));
+const PETAL_COLS = ['#f8d0de', '#f4b6cc', '#fbe6ee'];
+/** How many wildflowers are out, 0 to 1: from early April into July. */
+const blooming = day => ramp(day, 84, 104) * (1 - ramp(day, 168, 196));
+const FLOWER_COLS = ['#f4f0e8', '#f2d23c', '#9a6ad8', '#f08cb0', '#6f9cf0'];
+// Dandelions on the lawn, clear of the puddles: [x, how many days behind the rest]. Each is a yellow
+// flower from day 92, closes up at 106, is a puff from 110 and is gone by 155 (plus its own lag).
+export const DANDELIONS = [[8, -10], [33, 4], [41, -14], [50, 0], [57, -7], [86, 8], [91, -12], [108, 2], [114, -4]];
+const blownAt = DANDELIONS.map(() => -Infinity);
+const PUFF_REGROW = 4 * 60e3; // ms before a blown dandelion has a new puff, at normal speed
+const dandelionStage = d => (d < 92 || d >= 158 ? null : d < 106 ? 'flower' : d < 110 ? 'bud' : d < 155 ? 'puff' : 'stem');
+/** Robins come to the lawn from mid-March to early July. */
+const robinSeason = day => ramp(day, 62, 76) * (1 - ramp(day, 165, 190));
+// Facing right. b back, k head, o breast, y beak, l legs.
+const ROBIN = {
+  stand: ['...kk.', 'bbbbky', '.bboo.', '..l.l.'],
+  peck: ['......', 'bbbb..', '.bbokk', '..l.ly'],
+  up: ['.bb...', 'bbbbky', '..oo..', '......'],
+  down: ['......', 'bbbbky', '.bboo.', '.b....'],
+};
+const ROBIN_COLS = { b: '#6e5a4a', k: '#2b2626', o: '#e06a2c', y: '#f0c040', l: '#4a3a2e' };
+// A rainbow's bands, outside in.
+const BOW = ['#e8463a', '#f39a2e', '#f5d63c', '#5cbf4a', '#3f86e0', '#7a4fc0'];
+
 let falling = [], nextDrop = 0, geese = null, nextGeese = null, scatteredAt = -Infinity;
+let robins = [], nextRobins = null, robinVisits = 0;
 const REGROW = 6 * 60e3; // ms for a scattered pile to build back up, at normal speed
 
 function size() {
@@ -198,6 +230,50 @@ export function scatterPile() {
 export function pileColours() {
   const brown = ramp(seasonNow(k?.lat).day, 312, 338);
   return PILE_COLS.map(c => mix(c, '#7a5a36', brown * 0.6));
+}
+
+/** The dandelions now, in DANDELIONS order: { x (sky px), puff: a whole seed head, there to blow }. */
+export function dandelions() {
+  const day = seasonNow(k?.lat).day, now = performance.now();
+  const hidden = !k || k.snowing || (k.snowLying || 0) >= 0.3;
+  return DANDELIONS.map(([x, lag], i) => ({ x, puff: !hidden && dandelionStage(day - lag) === 'puff' && (now - blownAt[i]) * SPEED >= PUFF_REGROW }));
+}
+/** A dog has run through dandelion i: the seeds are gone (dogs.js sends them off), and it grows a new head. */
+export function blowDandelion(i) {
+  blownAt[i] = performance.now();
+  if (k) draw(performance.now() / 1000);
+}
+
+/** A few robins fly in and land on the lawn (2 or 3, or n). */
+export function robinsArrive(n = 2 + Math.floor(Math.random() * 2)) {
+  robinVisits++;
+  for (let i = 0; i < n; i++) {
+    const from = Math.random() < 0.5 ? -6 : W + 6;
+    const rb = { x: from, h: 22 + Math.random() * 14, dir: 1, delay: i * (0.5 + Math.random() * 0.6), lands: Math.random() < 0.6 ? 1 : 0, stay: 35 + Math.random() * 25, wait: 0, peck: 0, hop: null, fly: null, leave: false };
+    flyTo(rb, 14 + Math.random() * (W - 28), 4);
+    robins.push(rb);
+  }
+}
+/** The robins about now: { x, h (sky px, h above the lawn), down (on the lawn), going (flying off) }. */
+export const robinsNow = () => robins.filter(rb => !(rb.delay > 0)).map(rb => ({ x: rb.x, h: rb.h, down: !rb.fly && !rb.leave, going: rb.leave }));
+/** Goes up by one each time robins arrive. */
+export const robinVisit = () => robinVisits;
+/** Something has come at the robins near x (sky px): they fly up, and some land again further off. */
+export function startleRobins(x, reach = 22) {
+  for (const rb of robins) {
+    if (rb.leave || rb.delay > 0 || rb.fly || Math.abs(rb.x - x) > reach) continue;
+    const away = rb.x < x ? -1 : 1, to = away > 0 ? x + 40 + Math.random() * (W - 10 - x - 40) : 10 + Math.random() * (x - 50);
+    if (rb.lands > 0 && to > 8 && to < W - 8) { rb.lands--; rb.stay = Math.max(rb.stay, 12); flyTo(rb, to, 12); }
+    else leaveRobin(rb, away);
+  }
+}
+function flyTo(rb, x, arc) {
+  rb.fly = { x0: rb.x, h0: rb.h, x1: x, u: 0, dur: Math.max(0.8, Math.abs(x - rb.x) / 32), arc };
+  rb.dir = x >= rb.x ? 1 : -1;
+  rb.hop = null;
+}
+function leaveRobin(rb, dir = rb.x < W / 2 ? -1 : 1) {
+  Object.assign(rb, { leave: true, fly: null, hop: null, dir, vx: dir * (30 + Math.random() * 10), vh: 14 + Math.random() * 8 });
 }
 
 function draw(t) {
@@ -259,6 +335,7 @@ function draw(t) {
     const x = (((x0 * (W + 50) + t * speed * s) % (W + 50)) + W + 50) % (W + 50) - 30;
     cloud(Math.floor(x), Math.floor(y * horizon), Math.max(2, Math.round(s * 3 + k.cloud * 1.5)), cc);
   }
+  drawRainbow(horizon, ph);
 
   // Hills, a tree, and the lawn the dogs walk on, in the season's colours.
   // Frost whitens the land a little; falling snow covers it, and so does fresh snow lying after a fall.
@@ -306,6 +383,8 @@ function draw(t) {
   ctx.fillStyle = grass; ctx.fillRect(0, ground, W, H - ground);
   ctx.fillStyle = mix(grass, '#ffffff', 0.18);
   for (let x = (Math.floor(t) % 2); x < W; x += 4) ctx.fillRect(x, ground, 1, 1);
+  // Spring flowers, under the snow if there is any: none under a full cover, none where a patch lies.
+  if (!full) drawFlowers(day, land, dg, (x, y) => patches && meltAt(x, y - horizon) < patches);
   if (patches) snowPatches(() => ground, () => H, horizon, patches, snowOn(dg));
   // Lying snow banks up a little along the lawn's edge.
   if (lying > 0.3) {
@@ -316,20 +395,25 @@ function draw(t) {
 
   drawPile(land);
   // Fall: leaves let go of the tree and drift down, wind or no wind, in the tree's own colours.
-  const dropRate = density * ramp(day, 258, 290);
-  if (!still && dropRate > 0.03 && !k.snowing && t > nextDrop && falling.length < 6) {
-    nextDrop = t + (1.5 + Math.random() * 3) / Math.max(0.3, dropRate);
+  // Spring: blossom petals, lighter, slower and further on the breeze.
+  const leafing = ramp(day, 258, 290), petals = petalling(day);
+  const dropRate = density * Math.max(leafing, petals * 0.9), petal = petals > leafing;
+  if (!still && dropRate > 0.03 && !k.snowing && t > nextDrop && falling.length < (petal ? 8 : 6)) {
+    nextDrop = t + (petal ? 0.6 + Math.random() * 1.6 : 1.5 + Math.random() * 3) / Math.max(0.3, dropRate);
     const on = canopy.filter(p => p.drop < density);
     const p = on[Math.floor(Math.random() * on.length)];
-    if (p) falling.push({ x: tx + p.x + sway, y: ty + p.y, c: leafCol(p), ph: Math.random() * 9, vy: 3 + Math.random() * 2, land: ground - 1 - Math.floor(Math.random() * 6), rest: 0 });
+    if (p) falling.push({
+      x: tx + p.x + sway, y: ty + p.y, ph: Math.random() * 9, petal, land: ground - 1 - Math.floor(Math.random() * 6), rest: 0,
+      c: petal ? land(PETAL_COLS[Math.floor(Math.random() * PETAL_COLS.length)]) : leafCol(p), vy: petal ? 1.6 + Math.random() * 1.4 : 3 + Math.random() * 2,
+    });
   }
   const drift = k.windy ? 6 + k.gust * 0.3 : 0.8;
   for (const L of falling) {
     if (L.rest) { L.rest -= dt; } else {
-      L.y += L.vy * dt; L.x += drift * dt;
+      L.y += L.vy * dt; L.x += (L.petal ? drift * 1.6 + 1.2 : drift) * dt;
       if (L.y >= L.land) { L.y = L.land; L.rest = 5 + Math.random() * 4; }
     }
-    const x = Math.round(L.x + (L.rest ? 0 : Math.sin(t * 2.2 + L.ph) * 1.5)), flat = L.rest || Math.sin(t * 5 + L.ph) > 0;
+    const x = Math.round(L.x + (L.rest ? 0 : Math.sin(t * (L.petal ? 1.6 : 2.2) + L.ph) * (L.petal ? 2.5 : 1.5))), flat = L.rest || Math.sin(t * 5 + L.ph) > 0;
     ctx.fillStyle = L.c; ctx.fillRect(x, Math.round(L.y), flat ? 2 : 1, 1);
   }
   falling = falling.filter(L => !(L.rest < 0) && L.x < W + 2);
@@ -345,6 +429,7 @@ function draw(t) {
       if (Math.sin(t * 0.9 + i * 2.1) > 0.2) { ctx.fillStyle = night ? '#a9bde0' : '#ffffff'; ctx.fillRect(x + 2 + ((i * 5) % (w - 4)), ground - 2, 1, 1); }
     });
   }
+  drawRobins(t, dt, day, ph);
   if (k.fog) {
     ctx.fillStyle = night ? 'rgba(160,170,200,0.18)' : 'rgba(255,255,255,0.32)';
     for (let i = 0; i < 4; i++) ctx.fillRect(0, horizon - 6 + i * 7 + Math.round(Math.sin(t / 3 + i) * 2), W, 4);
@@ -372,7 +457,98 @@ function draw(t) {
       ctx.fillRect(Math.floor(x), Math.floor(y), 2, 1);
     }
   }
-  busy = falling.length > 0 || !!geese;
+  busy = falling.length > 0 || !!geese || robins.length > 0;
+}
+
+// Wildflowers (single pixels on short stems, here and there along the lawn's edge) and dandelions.
+// All through land(), so frost whitens them and they darken after sundown; snowAt(x, y) is lying snow.
+function drawFlowers(day, land, dg, snowAt) {
+  const stem = land(mix(dg, '#2f6b2a', 0.45)), put = (c, x, y) => { if (!snowAt(x, y)) { ctx.fillStyle = c; ctx.fillRect(x, y, 1, 1); } };
+  const n = blooming(day);
+  if (n > 0.02) for (let x = 1; x < W - 1; x++) {
+    if (hash(x, 71) > 0.34 * n || PUDDLES.some(([px, w]) => x >= px - 1 && x <= px + w)) continue;
+    const h = 1 + Math.floor(hash(x, 73) * 3);
+    for (let j = 1; j < h; j++) put(stem, x, ground - j);
+    put(land(FLOWER_COLS[Math.floor(hash(x, 72) * FLOWER_COLS.length)]), x, ground - h);
+  }
+  const now = performance.now(), yellow = land('#f5c518'), seed = land('#fbfbf2'), core = land('#cfcfc0'), bud = land('#9ab23c');
+  DANDELIONS.forEach(([x, lag], i) => {
+    let s = dandelionStage(day - lag);
+    if (!s) return;
+    if (s === 'puff' && (now - blownAt[i]) * SPEED < PUFF_REGROW) s = 'stem';
+    const g = ground;
+    put(stem, x, g - 1); put(stem, x, g - 2);
+    if (s === 'flower') { put(yellow, x - 1, g - 3); put(yellow, x, g - 3); put(yellow, x + 1, g - 3); put(yellow, x, g - 4); return; }
+    put(s === 'bud' ? bud : stem, x, g - 3);
+    if (s !== 'puff') return;
+    put(seed, x, g - 6); put(seed, x - 1, g - 5); put(core, x, g - 5); put(seed, x + 1, g - 5); put(seed, x - 1, g - 4); put(seed, x + 1, g - 4);
+  });
+}
+
+// A rainbow after rain (k.rainbow, 0-1), opposite the sun, its feet behind the hills.
+function drawRainbow(horizon, ph) {
+  const s = k.rainbow || 0;
+  if (s < 0.05 || ph === 'night') return;
+  const cx = Math.round(W * (ph === 'dawn' ? 0.68 : 0.32)), cy = horizon + 14, R = 40;
+  ctx.globalAlpha = 0.5 * s;
+  for (let y = cy - R; y < cy; y++) for (let x = cx - R; x <= cx + R; x++) {
+    const b = Math.floor(R - Math.hypot(x + 0.5 - cx, y + 0.5 - cy));
+    if (b >= 0 && b < BOW.length) { ctx.fillStyle = BOW[b]; ctx.fillRect(x, y, 1, 1); }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Spring: now and then two or three robins drop onto the lawn. They run a few hops, stop, peck, and
+// after a while fly off; rain or nightfall sends them off at once. Dogs startle them (startleRobins).
+function drawRobins(t, dt, day, ph) {
+  if (nextRobins == null) nextRobins = t + (q.has('robins') ? 3 : 60 + Math.random() * 180);
+  const ok = !still && ph !== 'night' && !k.raining && !k.fog && !((k.snowLying || 0) >= 0.3);
+  if (!robins.length && ok && robinSeason(day) > 0.5 && t > nextRobins) {
+    robinsArrive();
+    nextRobins = t + (q.has('robins') ? 45 : 300 + Math.random() * 420);
+  }
+  for (const rb of robins) {
+    if (rb.delay > 0) { rb.delay -= dt; continue; }
+    if (!ok && !rb.leave) leaveRobin(rb);
+    if (rb.leave) { rb.x += rb.vx * dt; rb.h += rb.vh * dt; continue; }
+    if (rb.fly) {
+      const f = rb.fly;
+      f.u = Math.min(1, f.u + dt / f.dur);
+      rb.x = f.x0 + (f.x1 - f.x0) * f.u; rb.h = f.h0 * (1 - f.u) + Math.sin(f.u * Math.PI) * f.arc;
+      if (f.u >= 1) { rb.fly = null; rb.h = 0; rb.wait = 0.4 + Math.random(); }
+      continue;
+    }
+    if ((rb.stay -= dt) < 0) { leaveRobin(rb); continue; }
+    if (rb.hop) {
+      const p = rb.hop;
+      p.u = Math.min(1, p.u + dt / 0.22);
+      rb.x = p.x0 + p.dx * p.u; rb.h = Math.sin(p.u * Math.PI) * 1.5;
+      if (p.u >= 1) { rb.hop = null; rb.h = 0; }
+      continue;
+    }
+    rb.peck = Math.max(0, rb.peck - dt);
+    if ((rb.wait -= dt) > 0) continue;
+    const c = Math.random();
+    if (c < 0.5) { // a hop or two, then a stop
+      if ((rb.x < 8 && rb.dir < 0) || (rb.x > W - 8 && rb.dir > 0)) rb.dir = -rb.dir;
+      rb.hop = { x0: rb.x, dx: rb.dir * (2 + Math.random() * 3), u: 0 };
+      rb.wait = Math.random() < 0.6 ? 0.1 : 0.5 + Math.random() * 0.8;
+    } else if (c < 0.82) { rb.peck = 0.45; rb.wait = 0.7 + Math.random() * 0.9; }
+    else { rb.dir = -rb.dir; rb.wait = 0.5 + Math.random() * 0.8; }
+  }
+  robins = robins.filter(rb => !(rb.leave && (rb.x < -8 || rb.x > W + 8 || rb.h > 90)));
+  const col = {};
+  for (const [c, v] of Object.entries(ROBIN_COLS)) col[c] = shade(v, ph);
+  for (const rb of robins) {
+    if (rb.delay > 0) continue;
+    const frame = rb.fly || rb.leave ? (Math.floor(t * 9 + rb.x) % 2 ? 'up' : 'down') : rb.peck > 0 ? 'peck' : 'stand';
+    const x0 = Math.round(rb.x) - 3, y0 = ground - 4 - Math.round(rb.h);
+    ROBIN[frame].forEach((row, j) => [...row].forEach((ch, i) => {
+      if (ch === '.') return;
+      ctx.fillStyle = col[ch];
+      ctx.fillRect(rb.dir > 0 ? x0 + i : x0 + 5 - i, y0 + j, 1, 1);
+    }));
+  }
 }
 
 // The leaf pile: a mound of mixed leaves, its pixels fixed so it doesn't shimmer.
@@ -483,7 +659,7 @@ export function initSky() {
   still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   size();
   addEventListener('resize', () => { size(); draw(performance.now() / 1000); });
-  if (q.has('dogspeed')) window.__sky = { draw: secs => draw(secs ?? performance.now() / 1000), geese: () => { nextGeese = 0; } };
+  if (q.has('dogspeed')) window.__sky = { draw: secs => draw(secs ?? performance.now() / 1000), geese: () => { nextGeese = 0; }, robins: n => robinsArrive(n) };
 }
 
 /** New conditions from the weather; starts the animation the first time. */

@@ -9,14 +9,19 @@
 // starts that scene (see "scenes" below) a couple of seconds in, then again every 25 seconds or so
 // (holiday scenes too: drumstick|coma|gift|sleigh|fireworks|confetti|rose|rainbow|egg|bunny|hotdog|
 // fireworks4|bone|dogpile|ghost|pumpkin; and the fall leaf pile: leafpile); with frozen puddles
-// (?preview=ice, or ?ice) ?dogact=iceslide has them all slide;
+// (?preview=ice, or ?ice) ?dogact=iceslide has them all slide; in spring, ?dogscene=robins brings robins
+// down onto the lawn (or sky.js's ?robins) and ?dogact=puffpounce has Ziggy pounce on a dandelion puff
+// (?season=spring&seasonat=0.6 has the most);
 // ?holiday=thanksgiving dresses them for that holiday whatever the date (ids in holidays.js), ?holiday=none
 // leaves them undressed; ?dogact=quip has them say their holiday lines.
 
 import { render, outfitTop, box, NOSE, SIZE, PAD, mouthPoint } from './sprites.js';
 import { holidayOn } from './holidays.js';
 import { OUTFITS } from './outfits.js';
-import { PUDDLES, PILE, W as SKY_W, pileSize, scatterPile, pileColours } from './sky.js';
+import {
+  PUDDLES, PILE, W as SKY_W, pileSize, scatterPile, pileColours,
+  DANDELIONS, dandelions, blowDandelion, robinsArrive, robinsNow, robinVisit, startleRobins,
+} from './sky.js';
 
 const q = new URLSearchParams(location.search);
 const SPEED = Math.max(0.1, +q.get('dogspeed') || 1);
@@ -292,6 +297,9 @@ function weights(d) {
   // Frozen puddles: Ziggy can't keep off them; the others try one, in their own way.
   if (k.ice && !k.night) z ? add({ iceslide: 3 }) : f ? add({ iceslide: 0.7 }) : add({ iceslide: 0.9 });
   if (k.fog) { add({ sniff: 6 }); w.hop *= 0.3; }
+  // Spring: dandelion puffs to pounce on; a rainbow for Minnie to gaze at.
+  if (z && !k.raining && !k.night && dandelions().some(p => p.puff)) add({ puffpounce: 2 });
+  if (m && k.rainbow) add({ gaze: 3 });
   if (k.hot) {
     z ? add({ sploot: 5, drink: bowl ? 2.5 : 0 }) : f ? add({ lie: 3, sploot: 2 }) : add({ shade: 4, drink: bowl ? 1.5 : 0 });
     w.zoomies = 0; w.playbow = (w.playbow || 0) * 0.3; w.wander *= 0.4; w.hop *= 0.5;
@@ -853,6 +861,7 @@ function propsStep(dt, S) {
   ropeStep();
   holidayStep(dt);
   leafBitsStep(dt);
+  springStep(dt);
 }
 
 // Leaves: the same little orange and yellow leaves the sky blows past, but in front, where the dogs are.
@@ -1270,7 +1279,7 @@ const SCENE_ACTS = new Set([
   'pester', 'flinch', 'rescue', 'flee', 'guardM', 'howl', 'pileup', 'tugwait', 'tugbring', 'tug', 'tugwin', 'tuglose',
   'steal', 'budge', 'evict', 'slink', 'reclaim', 'cower', 'skybark', 'race', 'chomp', 'beg', 'greeted', 'buttsniff', 'stretch',
   'unwrap', 'santa', 'onewoof', 'cheer', 'confcatch', 'woo', 'rebuff', 'goldig', 'claim', 'bunnychase', 'ghostbark',
-  'leafdive',
+  'leafdive', 'robinchase', 'robinwatch', 'birdsnub',
 ]);
 const inScene = () => dogs.some(d => SCENE_ACTS.has(d.actName) || d.queue.some(a => SCENE_ACTS.has(a)));
 let nextScene = FORCE_SCENE ? 2 : rnd(45, 100), tugS = null, stealS = null, pileSpot = null;
@@ -1285,6 +1294,8 @@ const SCENES = {
   treat: { when: () => false, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3) },
   // Fall: the leaf pile on the lawn (sky.js) is big enough to dive into.
   leafpile: { when: () => pileSize() >= 0.4 && !k.night && !k.raining && !k.snowing && !k.fog, w: 1.5, go: startLeafPile },
+  // Spring: robins come down by themselves (sky.js) and the dogs react (springStep); this only calls them in.
+  robins: { when: () => false, go: () => robinsArrive() },
   // Holiday scenes, only in their holiday's week (see "holidays" below).
   drumstick: { when: () => hol('thanksgiving') && !k.night && !k.raining, w: 1.5, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3, 'drumstick') },
   coma: { when: () => hol('thanksgiving') && !k.night && !k.hot, w: 0.8, go: () => startPile('coma') },
@@ -1400,6 +1411,146 @@ function leafBitsStep(dt) {
   }
   leafBits = leafBits.filter(b => !b.gone);
 }
+
+// ---------- spring ----------
+// A dandelion puff (sky.js) bursts into fluff when a dog on the lawn runs through it, and Ziggy pounces
+// on them on purpose; Minnie sneezes. When robins drop onto the lawn, Ziggy goes after them (up they go,
+// and some land again further off), Minnie sits and watches them, and Frank turns his back on the lot.
+
+let seeds = [], robinSeen = 0;
+const skyPx = () => innerWidth / SKY_W;
+function springStep(dt) {
+  if (still) return;
+  const px = skyPx();
+  dandelions().forEach((p, i) => {
+    if (!p.puff) return;
+    const d = dogs.find(o => free(o) && o.surf === 'ground' && !o.jump && o.walking && Math.abs(o.sx - p.x * px) < 8);
+    if (d) popPuff(i, d);
+  });
+  seedsStep(dt);
+  // Robins down on the lawn: a new visit sets the dogs going, unless something else is on.
+  const v = robinVisit();
+  if (v !== robinSeen && robinsNow().some(r => r.down)) {
+    robinSeen = v;
+    if (!inScene() && !treat && !grab && !k.night) startRobins();
+  }
+}
+function popPuff(i, d) {
+  blowDandelion(i);
+  const px = skyPx(), x = DANDELIONS[i][0] * px, gy = groundY();
+  for (let j = 0; j < 14; j++) {
+    const e = prop('seed');
+    e.style.width = e.style.height = `${Math.max(2, Math.round(px * 0.7))}px`;
+    seeds.push({ el: e, x: x + rnd(-1.5, 1.5) * px, y: gy - rnd(4, 6) * px, vx: rnd(-30, 30), vy: -rnd(20, 70), ph: rnd(0, 9), life: rnd(3.5, 6.5), age: 0 });
+  }
+  if (d?.def.k === 'm' && Math.random() < 0.6) say(d, 'achoo.', 1.4);
+}
+function seedsStep(dt) {
+  const wind = k.windy ? 50 + k.gust * 1.5 : 12;
+  for (const s of seeds) {
+    s.age += dt;
+    s.vx += (wind - s.vx) * Math.min(1, dt * 0.5);
+    s.vy += (-10 - s.vy) * Math.min(1, dt * 0.9); // settling into a slow rise
+    s.x += (s.vx + Math.sin(clock * 3 + s.ph) * 14) * dt; s.y += s.vy * dt;
+    s.el.style.opacity = clamp((s.life - s.age) / (s.life * 0.4), 0, 1).toFixed(2);
+    s.el.style.transform = `translate(${Math.round(s.x)}px, ${Math.round(s.y)}px)`;
+  }
+  seeds = seeds.filter(s => {
+    const gone = s.age > s.life || s.x > innerWidth + 10 || s.x < -10;
+    if (gone) s.el.remove();
+    return !gone;
+  });
+}
+function startRobins() {
+  const [z, f, m] = dogs, busy = o => SCENE_ACTS.has(o.actName) || ['nap', 'curl'].includes(o.actName);
+  if (free(z) && !busy(z) && !avoidsGround(z)) later(rnd(0.8, 1.8), () => free(z) && !SCENE_ACTS.has(z.actName) && interrupt(z, 'robinchase'));
+  // Minnie may be mid-hop: she tries again for a few seconds, while there are robins to see.
+  const watch = n => later(0.5, () => {
+    if (free(m) && onScreen(m) && !busy(m) && !['hide', 'wanderoff', 'comeback'].includes(m.actName)) interrupt(m, 'robinwatch');
+    else if (n > 0 && robinsNow().length) watch(n - 1);
+  });
+  watch(6);
+  later(1.6, () => { if (free(f) && onScreen(f) && !busy(f) && !['lie', 'sploot'].includes(f.actName)) interrupt(f, 'birdsnub'); });
+}
+/** The robin nearest screen x, among those that pass the test. */
+function nearestRobin(x, test = () => true) {
+  const px = skyPx();
+  return robinsNow().filter(test).sort((a, b) => Math.abs(a.x * px - x) - Math.abs(b.x * px - x))[0];
+}
+
+Object.assign(ACTS, {
+  // Ziggy, after the robins: at the nearest one on the lawn till they're all up and gone.
+  robinchase: d => needGround(d, 'robinchase') || {
+    dur: 20, run: 1, bubble: 'BIRDS!!', mood: 'happy',
+    pose: (dd, u, t) => {
+      const px = skyPx(), r = nearestRobin(dd.sx, o => o.down);
+      if (!r) {
+        const back = nearestRobin(dd.sx, o => !o.going); // some are landing again: watch where
+        if (back) { dd.move = null; dd.facing = back.x * px > dd.sx ? 1 : -1; return { head: -0.35, mouth: 1, ear: 0.1 }; }
+        if (!dd.said) { dd.said = clock; dd.move = null; say(dd, 'come back!!', 1.8, 'happy'); }
+        if (clock - dd.said > 1.8) { dd.actT = dd.act.dur; return {}; }
+        return { y: -Math.abs(Math.sin(t * 9)) * 4, mouth: 1, head: -0.4, ear: 0.2 };
+      }
+      const rx = r.x * px, { fx, dir } = noseTo(dd, rx);
+      walkTo(dd, fx); dd.facing = dir;
+      const nose = dd.sx + dir * noseOff(dd);
+      if (Math.abs(nose - rx) < 30) {
+        startleRobins(nose / px);
+        if (clock - dd.barked > 1.2) { dd.barked = clock; say(dd, 'WOOF!', 1, 'happy'); }
+      }
+      return { mouth: Math.floor(t * 6) % 2, ear: -0.3, head: -0.1 };
+    },
+  },
+  // Minnie: sits and follows them with her eyes, head tipping up as they fly.
+  robinwatch: () => ({
+    dur: 18,
+    pose: (d, u, t) => {
+      const r = nearestRobin(d.sx);
+      if (!r) { d.actT = d.act.dur; return { sit: 1 }; }
+      d.facing = r.x * skyPx() > d.sx ? 1 : -1;
+      if (!d.said && u > 0.08) { d.said = 1; say(d, '…a robin.', 1.8); }
+      return { sit: 1, head: r.h > 6 ? -0.35 : -0.05 + 0.05 * Math.sin(t * 2.3), ear: 0.15 };
+    },
+  }),
+  // Frank: lies down with his back to them. Birds.
+  birdsnub: d => {
+    const rs = robinsNow();
+    if (rs.length) d.facing = (rs.reduce((s, r) => s + r.x, 0) / rs.length) * skyPx() > d.sx ? -1 : 1;
+    return { dur: rnd(8, 12), pose: () => ({ lie: 1, head: 0.2, ear: -0.15 }) };
+  },
+  // Ziggy: creeps up on a dandelion puff, a wiggle, and pounces. Fluff everywhere.
+  puffpounce: d => {
+    const g = needGround(d, 'puffpounce');
+    if (g) return g;
+    const px = skyPx(), ok = dandelions().map((p, i) => ({ ...p, i })).filter(p => p.puff && p.x * px > 40 && p.x * px < innerWidth - 40);
+    if (!ok.length) return { dur: 1 };
+    const p = ok[Math.floor(Math.random() * ok.length)], x = p.x * px;
+    return {
+      dur: 14,
+      pose: (dd, u, t) => {
+        if (!dd.bowed) {
+          const fx = clamp((x + (dd.sx < x ? -1 : 1) * 44) / innerWidth, 0.03, 0.97);
+          if (Math.abs(fx - dd.fx) > 0.006) { walkTo(dd, fx); dd.slow = 0.6; return { head: 0.2, ear: 0.1 }; }
+          dd.move = null; dd.facing = x > dd.sx ? 1 : -1; dd.bowed = clock;
+        }
+        if (!dd.hopped) {
+          if (clock - dd.bowed < 0.8) return { bow: 0.22, ear: -0.25, mouth: 1, x: Math.sin(t * 30) * 0.5 };
+          dd.hopped = 1;
+          jumpTo(dd, ['ground', clamp(x / innerWidth, 0.03, 0.97)], 20, 0.45);
+          return {};
+        }
+        if (dd.jump) return { legF: 0.6, legB: -0.5, mouth: 1 };
+        if (!dd.took) {
+          dd.took = clock;
+          if (dandelions()[p.i].puff) popPuff(p.i, dd);
+          say(dd, Math.random() < 0.5 ? 'PFFT!!' : 'achoo!', 1.4, 'happy');
+        }
+        if (clock - dd.took > 1.6) { dd.actT = dd.act.dur; return {}; }
+        return { y: -Math.abs(Math.sin(t * 8)) * 4, mouth: 1, head: -0.25, ear: 0.2 };
+      },
+    };
+  },
+});
 
 // Tug-of-war: Ziggy brings the rope to Frank; they pull until one wins and takes a lap with it.
 function startTug() {
@@ -2159,7 +2310,7 @@ export function setDogs(next) {
     press = lastTap = null;
     leaves = []; flies = []; bowl = null; rope = null; treat = null;
     tugS = stealS = pileSpot = null;
-    leafBits = [];
+    leafBits = []; seeds = [];
     giftBox = sleigh = rainbow = null; confetti = []; confettiUntil = 0;
     lastPhase = null;
     document.documentElement.classList.remove('dog-held');
