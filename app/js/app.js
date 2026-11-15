@@ -228,7 +228,8 @@ function renderStatus() {
   let st = 'idle', text = 'Loading';
   if (isDemo()) { st = 'demo'; text = 'Demo data'; }
   else if (state.error) { st = 'error'; text = errorText(state.error) + (c ? ` Showing data from ${ago(c.t)}.` : ''); }
-  else if (!c) text = state.loading ? 'Loading' : 'No readings from the station yet';
+  else if (!c && state.loading) text = 'Loading';
+  else if (!c) { st = 'error'; text = 'Station offline'; }
   else if (Date.now() - c.t > 20 * MIN) { st = 'stale'; text = `Station quiet. Last report ${ago(c.t)}`; }
   else { st = 'live'; text = `Live. Updated ${ago(c.t)}`; }
   $('#status').dataset.state = st;
@@ -253,10 +254,39 @@ const tile = (id, label, value, unit, sub, spark) => ({ id, html: `
     ${spark || ''}
   </div>` });
 
+const OFFLINE_ICONS = {
+  // Signal bars with a slash: the station isn't sending.
+  station: '<path d="M4 20v-3M9 20v-7M14 20v-4M19 20V6"/><path d="M3 3l18 18"/>',
+  // Wi-Fi arcs with a slash: this phone has no connection.
+  network: '<path d="M2 8.8a15 15 0 0 1 4.4-2.7M10 5.2A15 15 0 0 1 22 8.8M5 12.9a10 10 0 0 1 5.2-2.7M17.3 11.4a10 10 0 0 1 1.7 1.5M8.5 16.4a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="0.6"/><path d="M3 3l18 18"/>',
+  // A key: the settings need fixing.
+  settings: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/>',
+};
+
+/** Shown in place of the readings when there are none: says why, and what to do about it. */
+function offlineCard(err) {
+  const kind = err?.kind;
+  const [icon, title, body, action] =
+    kind === 'network' ? ['network', "You're offline", 'This phone has no internet connection. Your readings will show once it reconnects.', 'retry']
+    : kind === 'auth' || kind === 'notfound' ? ['settings', 'Check your station settings', errorText(err), 'settings']
+    : err ? ['station', "Couldn't reach Weather Underground", errorText(err) === "Couldn't reach Weather Underground." ? 'It may be having trouble. Try again in a few minutes.' : errorText(err), 'retry']
+    : ['station', 'Your station is offline', 'Weather Underground has no recent readings from it. Check that the station has power and Wi-Fi, and that it is set to upload to Weather Underground.', 'retry'];
+  const btn = action === 'settings'
+    ? '<button class="btn small" type="button" data-go="settings">Open settings</button>'
+    : '<button class="btn small ghost" type="button" data-retry>Try again</button>';
+  return `
+    <div class="card offline" role="status">
+      <svg class="offline-icon" viewBox="0 0 24 24" aria-hidden="true">${OFFLINE_ICONS[icon]}</svg>
+      <h2>${esc(title)}</h2>
+      <p>${esc(body)}</p>
+      ${btn}
+    </div>`;
+}
+
 function renderNow() {
   const el = $('#view-now'), c = state.current, u = units();
   if (!c) {
-    el.innerHTML = `<p class="empty">${state.loading ? 'Loading your station' : state.error ? esc(errorText(state.error)) : 'No readings yet. Check that Weather Underground upload is turned on in the Inercom app.'}</p>`;
+    el.innerHTML = state.loading ? '<p class="empty">Loading your station</p>' : offlineCard(state.error);
     return;
   }
   const recent = state.today.length >= 24 || state.today.length >= state.hourly.length ? state.today : state.hourly.slice(-24);
@@ -421,7 +451,7 @@ function renderSettings() {
   $('#view-settings').innerHTML = `
     <h2>Your station</h2>
     <div class="card form">
-      <p class="help">This app reads your station through Weather Underground. Turn on Weather Underground upload in the Inercom app first, then enter your station ID and API key. They are stored only on this device.</p>
+      <p class="help">This app reads your station through Weather Underground. First set up your weather station to upload to Weather Underground (usually in the station's own app or console), then enter your station ID and API key. They are stored only on this device.</p>
       <label for="stationId">Station ID</label>
       <input id="stationId" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="KNYNEWYO123" value="${esc(settings.stationId)}">
       <label for="apiKey">API key</label>
@@ -504,7 +534,7 @@ async function connect() {
     renderSettings(); // adds the share link
     $('#connectMsg').textContent = cur
       ? `Connected to ${cur.name}. Last report ${ago(cur.t)}.`
-      : 'The key works, but the station has not reported anything yet. Check that Weather Underground upload is on in Inercom.';
+      : 'The key works, but the station has not reported anything yet. Check that your station is set to upload to Weather Underground.';
     switchSource();
   } catch (e) {
     msg.textContent = errorText(e);
@@ -528,7 +558,7 @@ document.addEventListener('click', e => {
     write(SETTINGS_KEY, settings);
     t.textContent = 'Layout reset';
   }
-  else if (t.id === 'refresh') refresh(true);
+  else if (t.id === 'refresh' || 'retry' in t.dataset) refresh(true);
   else if (t.id === 'connect') connect();
   else if (t.id === 'copyLink') {
     const inp = $('#shareLink');
