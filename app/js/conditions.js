@@ -107,15 +107,17 @@ function yardMemory(k, preview, remember) {
     y.t = now;
     try { localStorage.setItem(YARD_KEY, JSON.stringify(y)); } catch { /* storage unavailable */ }
   }
-  k.snowLying = live ? y.snow : preview === 'aftersnow' ? 0.9 : 0;
-  k.snowman = live ? !!y.man : preview === 'aftersnow';
+  // (Demo data shows none of it: it isn't the station's weather, and nothing would melt it.)
+  const mine = live && remember;
+  k.snowLying = mine ? y.snow : preview === 'aftersnow' ? 0.9 : 0;
+  k.snowman = mine ? !!y.man : preview === 'aftersnow';
   if (q.has('snowlying')) {
     k.snowLying = Math.min(1, Math.max(0, +q.get('snowlying') || 0));
     k.snowman = k.snowLying >= 0.12 && !k.snowing;
   }
   // Puddles freeze when it's at or below freezing after rain (today's, or up to a day and a half ago),
   // unless they're under the snow.
-  const rained = k.rainToday >= 0.05 || (live && now - y.wet < 36 * 36e5);
+  const rained = k.rainToday >= 0.05 || (mine && now - y.wet < 36 * 36e5);
   k.ice = (k.freezing && !k.raining && k.snowLying < 0.5 && rained) || q.has('ice');
 }
 
