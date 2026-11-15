@@ -6,9 +6,10 @@
 // and the big temperature. Surfaces are looked up afresh every frame, because the views re-render.
 // Debug: ?dogspeed=8 speeds everything up; ?dogact=zoomies forces an activity for every dog that has it;
 // ?dogact=ball throws a tennis ball every few seconds; ?dogscene=howl|pile|tug|steal|rumble|stretch|treat
-// starts that scene (see "scenes" below) a couple of seconds in, then again every 25 seconds or so;
+// starts that scene (see "scenes" below) a couple of seconds in, then again every 25 seconds or so
+// (holiday scenes too: drumstick|coma|gift|sleigh|fireworks|confetti|rose|rainbow);
 // ?holiday=thanksgiving dresses them for that holiday whatever the date (ids in holidays.js), ?holiday=none
-// leaves them undressed.
+// leaves them undressed; ?dogact=quip has them say their holiday lines.
 
 import { render, outfitTop, box, NOSE, SIZE, PAD, mouthPoint } from './sprites.js';
 import { holidayOn } from './holidays.js';
@@ -291,6 +292,7 @@ function weights(d) {
   }
   if (k.sunny && !k.hot) z ? add({ shadow: 2 }) : f ? add({ squint: 2 }) : add({ sunbathe: 4 });
   if (k.falling) z ? add({ pace: 4 }) : f ? add({ guard: 5, bark: 2 }) : 0;
+  if (QUIPS[holiday()]) w.quip = 0.7;
   return Object.entries(w);
 }
 
@@ -322,6 +324,7 @@ function choose(d) {
 
 function say(d, text, secs, mood = '') {
   d.bubble.textContent = text;
+  d.bubbleW = 0; // measured when next placed
   d.bubble.className = `bubble ${mood}`;
   d.bubble.hidden = false;
   clearTimeout(d.bubbleTimer);
@@ -349,6 +352,7 @@ const FX = {
   joy: [[HEART, -28, -32, 0], [HEART, -10, -40, 0.4], [HEART, -42, -22, 0.8]],
   growl: [[ZIG, 6, -6, 0], [ZIG, 9, 4, 0.12], [ZIG, 5, 14, 0.24]],
   dizzy: [[STAR, -22, -34, 0], [STAR, -22, -34, -0.3], [STAR, -22, -34, -0.6]],
+  heart: [[HEART, -24, -34, 0]], // just the one, once
 };
 function showFx(d, kind) {
   if (!kind || still) { d.fx_.hidden = true; return; }
@@ -372,13 +376,16 @@ function ballReady() {
   return clock > nextBall && !still && !grab && !treat && !k.night && !k.snowing && !inScene();
 }
 
-function throwBall() {
+/** A ball in from one side; or, given { x, y, dir }, one popping up from that spot (out of a present). */
+function throwBall(from) {
   const fromLeft = Math.random() < 0.5;
   const el = document.createElement('span');
   el.className = 'ball';
   el.innerHTML = BALL_PX;
   root.append(el);
-  ball = { el, x: fromLeft ? -20 : innerWidth + 20, vx: (fromLeft ? 1 : -1) * rnd(140, 185), h: rnd(90, 150), vh: 0, spin: 0, held: null, gone: false, age: 0, catchable: Math.random() < 0.6 };
+  ball = from
+    ? { el, x: from.x, vx: from.dir * rnd(120, 160), h: Math.max(0, groundY() - from.y) + 6, vh: 300, spin: 0, held: null, gone: false, age: 0, catchable: true }
+    : { el, x: fromLeft ? -20 : innerWidth + 20, vx: (fromLeft ? 1 : -1) * rnd(140, 185), h: rnd(90, 150), vh: 0, spin: 0, held: null, gone: false, age: 0, catchable: Math.random() < 0.6 };
   nextBall = clock + (FORCE === 'ball' ? 12 : rnd(...BALL_GAP));
   dogs.forEach((d, i) => setTimeout(() => { if (ball && !ball.held) interrupt(d, 'fetch'); }, [0, 350, 700][i] / SPEED));
 }
@@ -457,7 +464,7 @@ function step(d, dt, t, S) {
     const dir = Math.sign(d.move.fx - d.fx);
     d.fx += dir * speed * dt;
     d.walking = true;
-    if (Math.sign(d.move.fx - d.fx) !== dir) {
+    if (!dir || Math.sign(d.move.fx - d.fx) !== dir) { // there (or already there)
       d.fx = d.move.fx; d.move = null; d.walking = false;
       if (a?.untilArrive) d.actT = a.dur;
     }
@@ -514,13 +521,20 @@ function place(d, S) {
     if (u > 0.15 && u < 0.6) y -= Math.sin(((u - 0.15) / 0.45) * Math.PI) * 5;
   }
   d.cv.style.transform = `translate(${Math.round(x - b.cx * K)}px, ${Math.round(y - b.footY * K)}px) scaleX(${d.facing})${sc}`;
-  d.bubble.style.transform = `translate(${Math.round(x - 24)}px, ${Math.round(y - (b.footY - b.lift) * K * 0.8 - (d.rise || 0))}px) translateY(-100%)`;
+  d.bubble.style.transform = `translate(${bubbleX(d, x)}px, ${Math.round(y - (b.footY - b.lift) * K * 0.8 - (d.rise || 0))}px) translateY(-100%)`;
   d.sx = x; d.sy = y;
   if (!d.fx_.hidden) {
     const [nx, ny] = NOSE[d.def.k], sc = SIZE[d.def.k];
     const hx = x + d.facing * (nx * sc - b.cx) * K, hy = y - (b.footY - (ny + PAD[d.def.k] + (d.pose?.y || 0)) * sc) * K;
     d.fx_.style.transform = `translate(${Math.round(hx)}px, ${Math.round(hy)}px) scaleX(${d.facing})`;
   }
+}
+
+/** A speech bubble's left edge for a dog at screen x: just behind its head, but kept on screen. */
+function bubbleX(d, x) {
+  if (d.bubble.hidden) return Math.round(x - 24);
+  if (!d.bubbleW) d.bubbleW = d.bubble.offsetWidth;
+  return Math.round(clamp(x - 24, 4, innerWidth - d.bubbleW - 4));
 }
 
 /** How far (screen px) to raise a dog's speech bubble so it clears its outfit when standing or sitting. */
@@ -726,9 +740,9 @@ function land(d, { key, s }, x) {
 }
 
 /** Dust (or a splash, or snow) kicked up where a dog lands. */
-function puff(x, y, drop, ground) {
+function puff(x, y, drop, ground, cls) {
   const el = document.createElement('span');
-  el.className = `puff ${(k.rain || k.puddles) && ground ? 'wet' : k.snowing ? 'snow' : ''}`;
+  el.className = `puff ${cls || ((k.rain || k.puddles) && ground ? 'wet' : k.snowing ? 'snow' : '')}`;
   const n = drop > 200 ? 6 : 4;
   el.innerHTML = Array.from({ length: n }, (_, i) => `<i style="--dx:${(i % 2 ? 1 : -1) * (12 + (i >> 1) * 9)}px;--dy:${-(3 + (i % 3) * 5)}px"></i>`).join('');
   el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
@@ -744,7 +758,7 @@ function placeGrab(d, S) {
   d.cv.style.transform = `translate(${Math.round(x - gx)}px, ${Math.round(y - gy)}px) rotate(${ang.toFixed(4)}rad) scaleX(${d.facing})${sq}`;
   const [rx, ry] = feetRel(d);
   d.sx = x + rx; d.sy = y + ry;
-  d.bubble.style.transform = `translate(${Math.round(x - 24)}px, ${Math.round(y - 30 - (d.rise || 0))}px) translateY(-100%)`;
+  d.bubble.style.transform = `translate(${bubbleX(d, x)}px, ${Math.round(y - 30 - (d.rise || 0))}px) translateY(-100%)`;
   if (!d.fx_.hidden) {
     const [nx, ny] = NOSE[d.def.k], sc = SIZE[d.def.k], c = Math.cos(ang), s = Math.sin(ang);
     const vx = d.facing * (nx * sc * K - gx), vy = (ny + PAD[d.def.k]) * sc * K - gy;
@@ -831,6 +845,7 @@ function propsStep(dt, S) {
   bowlStep();
   treatStep(dt, S);
   ropeStep();
+  holidayStep(dt);
 }
 
 // Leaves: the same little orange and yellow leaves the sky blows past, but in front, where the dogs are.
@@ -1165,6 +1180,7 @@ function startStretch() {
 const SCENE_ACTS = new Set([
   'pester', 'flinch', 'rescue', 'flee', 'guardM', 'howl', 'pileup', 'tugwait', 'tugbring', 'tug', 'tugwin', 'tuglose',
   'steal', 'budge', 'evict', 'slink', 'reclaim', 'cower', 'skybark', 'race', 'chomp', 'beg', 'greeted', 'buttsniff', 'stretch',
+  'unwrap', 'santa', 'onewoof', 'cheer', 'confcatch', 'woo', 'rebuff', 'goldig', 'claim',
 ]);
 const inScene = () => dogs.some(d => SCENE_ACTS.has(d.actName) || d.queue.some(a => SCENE_ACTS.has(a)));
 let nextScene = FORCE_SCENE ? 2 : rnd(45, 100), tugS = null, stealS = null, pileSpot = null;
@@ -1177,6 +1193,15 @@ const SCENES = {
   rumble: { when: () => k.falling, w: 2, go: startRumble },
   stretch: { when: () => false, go: startStretch },
   treat: { when: () => false, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3) },
+  // Holiday scenes, only in their holiday's week (see "holidays" below).
+  drumstick: { when: () => hol('thanksgiving') && !k.night && !k.raining, w: 1.5, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3, 'drumstick') },
+  coma: { when: () => hol('thanksgiving') && !k.night && !k.hot, w: 0.8, go: () => startPile('coma') },
+  gift: { when: () => hol('christmas') && !k.night && !k.raining, w: 1.5, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3, 'gift') },
+  sleigh: { when: () => hol('christmas') && k.night && !k.raining, w: 1.5, go: startSleigh },
+  fireworks: { when: () => hol('newyear') && k.night && !k.raining, w: 1.5, go: startFireworks },
+  confetti: { when: () => hol('newyear') && !k.night && !k.raining, w: 1.2, go: startConfetti },
+  rose: { when: () => hol('valentines') && !k.night && !k.rain && onScreen(dogs[M]) && !['hide', 'wanderoff', 'comeback'].includes(dogs[M].actName), w: 1.5, go: startRose },
+  rainbow: { when: () => hol('stpatricks') && !k.night && !k.raining, w: 1.5, go: startRainbow },
 };
 
 // The gap between scenes counts from when the last one ended, so a long one (a nap pile) doesn't
@@ -1211,7 +1236,8 @@ function startRumble() {
 }
 
 // Nap pile: all three curled up together, Minnie in the middle, on her tile if it's big enough.
-function startPile() {
+// 'coma' is Thanksgiving's: the same pile by day, after too much turkey.
+function startPile(mode) {
   const m = dogs[M];
   let surf = onScreen(m) && width(m.surf) >= 120 ? m.surf : 'ground';
   // In snow, Minnie won't come down: they pile up on the widest tile instead.
@@ -1220,7 +1246,7 @@ function startPile() {
   }
   const w = width(surf);
   const c = surf === m.surf ? clamp(m.fx, 60 / w, 1 - 60 / w) : rnd(0.3, 0.7);
-  pileSpot = { surf, c, fx: { m: c, f: clamp(c - 30 / w, 0.02, 0.98), z: clamp(c + 34 / w, 0.02, 0.98) } };
+  pileSpot = { surf, c, coma: mode === 'coma', fx: { m: c, f: clamp(c - 30 / w, 0.02, 0.98), z: clamp(c + 34 / w, 0.02, 0.98) } };
   dogs.forEach((d, i) => later(i * 0.6, () => free(d) && interrupt(d, 'pileup')));
 }
 
@@ -1265,7 +1291,8 @@ Object.assign(ACTS, {
         if (!dd.settled) {
           dd.settled = 1;
           dd.facing = dd.def.k === 'm' ? (Math.random() < 0.5 ? 1 : -1) : fx < p.c ? 1 : -1;
-          if (dd.def.k === 'm') say(dd, 'z z', 3);
+          if (p.coma) say(dd, { z: 'so… full…', f: 'worth it.', m: 'z z' }[dd.def.k], 3);
+          else if (dd.def.k === 'm') say(dd, 'z z', 3);
         }
         return { lie: 1, eyes: 0, head: 0.38 };
       },
@@ -1456,6 +1483,16 @@ Object.assign(ACTS, {
 // dogs race for it. Ziggy is fastest, Frank wins if it lands near him, and Minnie only bothers if it's close.
 
 const TREAT_PX = pix(['.bb....bb.', 'bbbbbbbbbb', '.bbbbbbbb.', 'ssssssssss', '.ss....ss.'], { b: '#f3e6c8', s: '#cdb68c' }, K);
+const DRUM_PX = pix(['ww.....mmmm.', '.wwwwwmmmhhm', '.wwwwwmmmmmm', 'ww.....mmmm.'], { w: '#f4efe2', m: '#a5562a', h: '#d9864a' }, K);
+const GIFT_PX = pix(['..y...y..', '...yyy...', 'rrrryrrrr', 'rrrryrrrr', 'yyyyyyyyy', 'rrrryrrrr', 'rrrryrrrr', 'rrrryrrrr'], { r: '#d63a3a', y: '#f2c94c' }, K);
+// Things that drop for the dogs: a double-tap treat, and the holiday drumstick and present. Size in
+// screen pixels; cry is what each dog shouts as it races for it; only, the one dog who bothers; got,
+// what the winner does with it.
+const DROPS = {
+  treat: { px: TREAT_PX, w: 20, h: 10, cry: { z: 'TREAT!!', f: '!' } },
+  drumstick: { px: DRUM_PX, w: 24, h: 8, cry: { z: 'TURKEY!!', f: 'MINE.' } },
+  gift: { px: GIFT_PX, w: 18, h: 16, cry: { z: 'PRESENT!!' }, only: 'z', got: 'unwrap' },
+};
 
 function doubleTap(e) {
   const p = press, now = performance.now();
@@ -1471,11 +1508,13 @@ function doubleTap(e) {
   } else lastTap = { x: e.clientX, y: e.clientY, at: now };
 }
 
-function dropTreat(x, y) {
+function dropTreat(x, y, kind = 'treat') {
   if (treat || still || !k || !dogs.length) return;
-  treat = { el: prop('treat', TREAT_PX), x, y, vy: -140, surf: null, fx: 0, born: clock };
+  const D = DROPS[kind];
+  treat = { el: prop('treat', D.px), kind, x, y, vy: -140, surf: null, fx: 0, born: clock };
+  if (kind === 'gift') later(1.8, () => { const f = dogs[F]; if (free(f) && !SCENE_ACTS.has(f.actName)) say(f, 'bah.', 1.6); });
   for (const d of dogs) {
-    if (!free(d)) continue;
+    if (!free(d) || (D.only && d.def.k !== D.only)) continue;
     if (d.def.k === 'm' && Math.abs((d.sx ?? 0) - x) > 220) continue; // too far; Minnie can't be bothered
     later({ z: 0.15, f: 0.45, m: 0.7 }[d.def.k], () => { if (free(d) && treat) interrupt(d, 'race'); });
   }
@@ -1494,13 +1533,14 @@ function treatStep(dt, S) {
     if (hit) { t.surf = hit[0]; t.fx = clamp((t.x - hit[1].l) / Math.max(1, hit[1].r - hit[1].l), 0.02, 0.98); t.vy = 0; }
   }
   if (t.surf) { const p = at(S, t.surf, t.fx); t.x = p.x; t.y = p.y; }
-  t.el.style.transform = `translate(${Math.round(t.x - 10)}px, ${Math.round(t.y - 10)}px)`;
+  const D = DROPS[t.kind];
+  t.el.style.transform = `translate(${Math.round(t.x - D.w / 2)}px, ${Math.round(t.y - D.h)}px)`;
   if (clock - t.born > 40) { t.el.remove(); treat = null; } // nobody wanted it
 }
 
 Object.assign(ACTS, {
   race: d => ({
-    dur: 25, run: 1, bubble: { z: 'TREAT!!', f: '!' }[d.def.k], mood: 'happy',
+    dur: 25, run: 1, bubble: DROPS[treat?.kind || 'treat'].cry[d.def.k], mood: 'happy',
     pose: dd => {
       const t = treat;
       if (!t) { dd.actT = dd.act.dur; return {}; }
@@ -1511,16 +1551,260 @@ Object.assign(ACTS, {
       const { fx, dir } = noseTo(dd, t.x);
       if (Math.abs(dd.sx + dir * noseOff(dd) - t.x) > 7) { walkTo(dd, fx); return { mouth: 1, ear: -0.3, head: -0.05 }; }
       // Got it.
-      t.el.remove(); treat = null;
+      const got = DROPS[t.kind].got || 'chomp';
+      if (got === 'unwrap') giftBox = { el: t.el, x: t.x, y: t.y, t: clock }; else t.el.remove();
+      treat = null;
       dd.facing = dir;
       for (const o of dogs) if (o !== dd && o.actName === 'race') interrupt(o, { z: 'beg', f: 'grumble', m: 'ignore' }[o.def.k]);
-      interrupt(dd, 'chomp');
+      interrupt(dd, got);
       return {};
     },
   }),
   chomp: () => ({ dur: 2, bubble: 'nom nom', mood: 'happy', pose: (d, u, t) => ({ bow: 0.08, head: 0.25, mouth: Math.floor(t * 9) % 2, ear: 0.15 }) }),
   // Ziggy, when someone else got it: sits and looks up at you. Any more?
   beg: d => { d.facing = d.sx < innerWidth / 2 ? 1 : -1; return { dur: 3, bubble: '?', pose: () => ({ sit: 1, head: -0.3, ear: 0.25 }) }; },
+});
+
+// ---------- holidays ----------
+// While a holiday is on (holidays.js; outfits.js dresses them), each dog now and then says something
+// about it, and the holiday's scenes join the others (see SCENES). Only holidays with outfits have these.
+
+const QUIPS = {
+  thanksgiving: { z: ['TURKEY?!', 'GRAVY!!', 'IS IT TIME?!'], f: ['my plate.', 'no sharing.', 'hmph. pie.'], m: ['…stuffing?', 'pass.', 'too loud.'] },
+  christmas: { z: ['SANTA?!', 'PRESENTS!!', 'SNOW?! SNOW!'], f: ['bah.', 'humbug.', 'this hat.'], m: ['naughty? me?', '…tinsel.', 'fa la… la.'] },
+  newyear: { z: ['3! 2! 1!', 'PARTY!!', 'HAPPY NEW—!'], f: ['bedtime.', 'noise. ugh.', 'hmph.'], m: ['…sparkly.', 'midnight? eh.', 'z z… cheers.'] },
+  valentines: { z: ['BE MINE!!', 'LOVE YOU!!', 'ROSES!!'], f: ['mush.', 'no hugs.', '…fine. one.'], m: ['…flowers?', 'you may.', 'not today.'] },
+  stpatricks: { z: ['GOLD?!', 'LUCKY ME!!', 'RAINBOW!!'], f: ['no pinching.', 'hmph. green.', 'mine.'], m: ['…clover.', 'lucky? eh.', 'how green.'] },
+};
+const hol = id => holiday() === id;
+const skyTop = () => document.querySelector('.top')?.getBoundingClientRect().bottom || 0;
+
+const SLEIGH_PX = pix([
+  '...w....................b.b...',
+  '..rrr....................b....',
+  '..fff...................bbbn..',
+  '..www...................bb....',
+  '.rrrrrllllllllllll..bbbbbb....',
+  'ddrrrrrdd.........l.bbbbbb....',
+  'dddddddd...........b.b..b.b...',
+  '.dddddd............b.b..b.b...',
+  'yyyyyyyyy.....................',
+], { r: '#e04040', w: '#f4f4f4', f: '#f2c9a0', d: '#8e1f2a', b: '#9a6a3c', n: '#ff4a4a', l: '#c8a46a', y: '#f2c94c' }, K);
+const BURST = ['.....x.....', '.x...x...x.', '..x.....x..', '...........', '.....c.....', 'xx..ccc..xx', '.....c.....', '...........', '..x.....x..', '.x...x...x.', '.....x.....'];
+const BURST_COLS = ['#ff5a5a', '#ffd34d', '#6fd3ff', '#c39bff', '#7dffa1', '#ff8ad8'];
+const CONFETTI_COLS = ['#ff5a5a', '#ffd34d', '#4fb3ff', '#b98cff', '#3fcf7a', '#ff8ad8'];
+const COIN_PX = pix(['.yyyy.', 'yywwyy', 'yywyyy', 'yyyyyy', '.yyyy.'], { y: '#f2c94c', w: '#fff3b0' }, K);
+// A rainbow arc, 6 bands of 2 pixels, drawn 3x; its right foot is 126px from its left edge.
+const RAINBOW_PX = (() => {
+  const W = 48, H = 24, rows = [];
+  for (let y = 0; y < H; y++) {
+    let r = '';
+    for (let x = 0; x < W; x++) { const b = Math.floor((24 - Math.hypot(x + 0.5 - W / 2, H - y - 0.5)) / 2); r += b >= 0 && b < 6 ? 'abcdef'[b] : '.'; }
+    rows.push(r);
+  }
+  return pix(rows, { a: '#e53935', b: '#fb8c00', c: '#fdd835', d: '#43a047', e: '#1e88e5', f: '#8e24aa' }, 3);
+})();
+
+let giftBox = null, sleigh = null, rainbow = null, confetti = [], confettiUntil = 0, nextConfetti = 0;
+
+// Christmas Eve, late: a sleigh crosses the sky. Ziggy wakes up shouting; Frank gives it one woof.
+function startSleigh() {
+  sleigh = { el: prop('sleigh', SLEIGH_PX), x: -70, y: skyTop() + rnd(30, 70), v: (innerWidth + 90) / 9 };
+  later(1.5, () => free(dogs[Z]) && interrupt(dogs[Z], 'santa'));
+  later(3.2, () => free(dogs[F]) && interrupt(dogs[F], 'onewoof'));
+}
+
+// New Year's at midnight: fireworks. Ziggy cheers, Minnie hides at the edge and Frank guards her.
+function startFireworks() {
+  const [z, f, m] = dogs, top = skyTop();
+  for (let i = 0; i < 8; i++) {
+    later(i * 0.8 + rnd(0, 0.4), () => {
+      const e = prop('burst', pix(BURST, { x: BURST_COLS[Math.floor(Math.random() * BURST_COLS.length)], c: '#fff' }, 3));
+      e.style.transform = `translate(${Math.round(rnd(0.1, 0.9) * innerWidth - 16)}px, ${Math.round(top + rnd(20, 170))}px)`;
+      e.addEventListener('animationend', () => e.remove());
+    });
+  }
+  later(0.4, () => free(m) && interrupt(m, 'cower'));
+  later(0.7, () => free(z) && interrupt(z, 'cheer'));
+  later(2.4, () => { if (free(f)) { interrupt(f, 'guardM'); say(f, 'noise. ugh.', 1.8); } });
+}
+
+// New Year's Day: confetti. Ziggy jumps for it, Frank turns his back, Minnie sits it out, then shakes it off.
+function startConfetti() {
+  const [z, f, m] = dogs;
+  confettiUntil = clock + 9;
+  later(0.8, () => free(z) && interrupt(z, 'confcatch'));
+  later(1.4, () => free(f) && !SCENE_ACTS.has(f.actName) && interrupt(f, 'grumble'));
+  later(1.8, () => free(m) && !SCENE_ACTS.has(m.actName) && interrupt(m, 'gaze'));
+  later(10, () => { if (free(m) && !SCENE_ACTS.has(m.actName)) { interrupt(m, 'shake'); say(m, '…', 1.5); } });
+}
+
+// Valentine's: Ziggy brings Minnie his rose. Not today. Frank sits by her, and a heart pops over him.
+function startRose() {
+  if (free(dogs[Z]) && onScreen(dogs[M])) interrupt(dogs[Z], 'woo');
+}
+
+// St. Patrick's: a rainbow comes down on the lawn. Ziggy digs at its end and finds gold; Frank sits on it.
+function startRainbow() {
+  if (!free(dogs[Z]) || rainbow) return;
+  rainbow = { el: prop('rainbow', RAINBOW_PX), x: clamp(rnd(0.35, 0.8) * innerWidth, 140, innerWidth - 24), coin: null, until: clock + 40 };
+  root.prepend(rainbow.el); // behind the dogs
+  later(1.2, () => free(dogs[Z]) && interrupt(dogs[Z], 'goldig'));
+}
+
+function holidayStep(dt) {
+  const gy = groundY();
+  if (giftBox && dogs[Z].actName !== 'unwrap' && clock - giftBox.t > 1) { giftBox.el.remove(); giftBox = null; } // he was interrupted
+  if (sleigh) {
+    const s = sleigh;
+    s.x += s.v * dt;
+    s.el.style.transform = `translate(${Math.round(s.x)}px, ${Math.round(s.y - (s.x / innerWidth) * 24 + Math.sin(clock * 3) * 3)}px)`;
+    if (s.x > innerWidth + 20) { s.el.remove(); sleigh = null; }
+  }
+  if (!still && clock < confettiUntil && clock > nextConfetti && confetti.length < 70) {
+    nextConfetti = clock + 0.1;
+    const e = prop('confetti');
+    e.style.background = CONFETTI_COLS[Math.floor(Math.random() * CONFETTI_COLS.length)];
+    confetti.push({ el: e, x: rnd(0, innerWidth), y: skyTop(), v: rnd(45, 75), ph: rnd(0, 9), down: false });
+  }
+  for (const c of confetti) {
+    if (c.down) continue;
+    c.y += c.v * dt;
+    if (c.y >= gy - 2) {
+      c.y = gy - 2; c.down = true;
+      c.el.classList.add('down');
+      c.el.addEventListener('animationend', () => { c.el.remove(); c.gone = true; });
+    }
+    c.el.style.transform = `translate(${Math.round(c.x + Math.sin(clock * 3 + c.ph) * 8)}px, ${Math.round(c.y)}px) rotate(${Math.round(Math.sin(clock * 5 + c.ph)) * 45}deg)`;
+  }
+  confetti = confetti.filter(c => !c.gone);
+  if (rainbow) {
+    const r = rainbow;
+    r.el.style.transform = `translate(${Math.round(r.x - 126)}px, ${Math.round(gy - 72)}px)`;
+    if (r.coin) { const a = clock - r.coinT; r.coin.style.transform = `translate(${Math.round(r.x - 6)}px, ${Math.round(gy - 10 - (a < 0.6 ? Math.sin((a / 0.6) * Math.PI) * 16 : 0))}px)`; }
+    if (!r.out && (r.done || clock > r.until)) { r.out = clock; r.el.classList.add('out'); r.coin?.remove(); r.coin = null; }
+    if (r.out && clock - r.out > 1.6) { r.el.remove(); rainbow = null; }
+  }
+}
+
+Object.assign(ACTS, {
+  // A holiday line, in character: Ziggy bouncing, Frank sitting with his back turned, Minnie nose in the air.
+  quip: d => {
+    const lines = QUIPS[holiday()]?.[d.def.k];
+    if (!lines) return null;
+    const text = lines[Math.floor(Math.random() * lines.length)];
+    if (d.def.k === 'z') return { dur: 2.4, bubble: text, mood: 'happy', fx: hol('valentines') ? 'joy' : undefined, pose: (dd, u, t) => ({ mouth: 1, head: -0.22, y: -Math.abs(Math.sin(t * 9)) * 4, ear: 0.2 }) };
+    if (d.def.k === 'f') { d.facing *= -1; return { dur: 2.8, bubble: text, pose: () => ({ sit: 1, head: 0.1, ear: -0.15 }) }; }
+    return { dur: 3, bubble: text, pose: () => ({ sit: 1, head: -0.32, eyes: 0 }) };
+  },
+  // Ziggy tears into a present: paper everywhere, and out bounces a ball.
+  unwrap: () => ({
+    dur: 2.8,
+    pose: (d, u, t) => {
+      const box = giftBox;
+      if (!box) { d.actT = d.act.dur; return {}; }
+      const n = Math.floor(d.actT / 0.4);
+      if (n !== d.tried) { d.tried = n; puff(box.x, box.y - 6, 100, false, 'paper'); }
+      if (u > 0.9) {
+        box.el.remove(); giftBox = null;
+        if (!ball) throwBall({ x: box.x, y: box.y, dir: Math.random() < 0.5 ? 1 : -1 });
+        d.actT = d.act.dur;
+        return {};
+      }
+      return { bow: 0.2, head: 0.35 + 0.1 * Math.sin(t * 25), mouth: Math.floor(t * 8) % 2, ear: -0.2 };
+    },
+  }),
+  // Ziggy, woken by sleigh bells: sits up barking at the sky, then goes back to sleep.
+  santa: d => {
+    d.queue.push('nap');
+    return {
+      dur: 3.6, bubble: 'SANTA?!', mood: 'happy',
+      pose: (dd, u, t) => { if (sleigh) dd.facing = sleigh.x > dd.sx ? 1 : -1; const m = Math.floor(t * 4) % 2; return { sit: 1, head: -0.45 - 0.06 * m, mouth: m, ear: 0.2 }; },
+    };
+  },
+  // Frank lifts his head: one woof, and back to sleep.
+  onewoof: d => { d.queue.push('nap'); return { dur: 2.2, bubble: 'WOOF.', pose: (dd, u) => ({ lie: 1, head: -0.15, mouth: u > 0.15 && u < 0.4 ? 1 : 0, ear: -0.2 }) }; },
+  cheer: () => ({ dur: 3.4, bubble: 'WOO!!', mood: 'happy', pose: (d, u, t) => ({ mouth: 1, head: -0.4, y: -Math.abs(Math.sin(t * 8)) * 5, ear: 0.25 }) }),
+  confcatch: () => ({ dur: 6, bubble: 'PARTY!!', mood: 'happy', pose: (d, u, t) => ({ y: -Math.abs(Math.sin(t * 5)) * 7, mouth: Math.floor(t * 5) % 2, head: -0.35, ear: 0.2 }) }),
+  // Ziggy to Minnie, rose in his teeth: a play bow and hearts. Then he slinks off.
+  woo: () => ({
+    dur: 18,
+    pose: (d, u, t) => {
+      const m = dogs[M];
+      if (!d.bowed && !onScreen(m) && !m.jump) { d.actT = d.act.dur; return {}; }
+      if (d.jump || m.jump) return {};
+      if (!d.bowed) {
+        if (d.surf !== m.surf) { jumpTo(d, [m.surf, beside(m, d, 30)]); return {}; }
+        if (Math.abs(d.sx - m.sx) > 40) { walkTo(d, beside(m, d, 30)); d.slow = 0.9; return { ear: 0.2, head: -0.1 }; }
+        d.move = null; d.facing = m.sx > d.sx ? 1 : -1;
+        d.bowed = clock; say(d, 'BE MINE!!', 2.2, 'happy'); showFx(d, 'joy');
+      }
+      const s = clock - d.bowed;
+      if (s > 2.2 && !d.said) { d.said = 1; interrupt(m, 'rebuff'); }
+      if (s > 3.8) { d.queue = ['slink']; d.actT = d.act.dur; return {}; }
+      return s < 2.2 ? { bow: 0.22, ear: 0.2, head: -0.1 } : { sit: 1, ear: -0.3, head: 0.05 };
+    },
+  }),
+  // Minnie turns her back on him. Frank comes and sits by her; once he's settled, one heart.
+  rebuff: m => {
+    const z = dogs[Z], f = dogs[F];
+    m.facing = (z.sx ?? 0) > m.sx ? -1 : 1;
+    m.queue.push('gaze'); // and stays put, so Frank can settle beside her
+    later(1.2, () => free(f) && interrupt(f, 'guardM'));
+    const heart = n => later(1, () => {
+      if (f.actName !== 'guardM' || n <= 0) return;
+      if (f.move || f.jump) heart(n - 1); else showFx(f, 'heart');
+    });
+    later(2, () => heart(10));
+    return { dur: 3, bubble: 'not today.', pose: () => ({ sit: 1, head: -0.32, eyes: 0 }) };
+  },
+  // Ziggy runs to the end of the rainbow and digs; up comes a gold coin.
+  goldig: d => needGround(d, 'goldig') || {
+    dur: 22, run: 1,
+    pose: (dd, u, t) => {
+      const r = rainbow;
+      if (!r || r.out) { dd.actT = dd.act.dur; return {}; }
+      if (!dd.sniffing) {
+        const { fx, dir } = noseTo(dd, r.x);
+        if (Math.abs(fx - dd.fx) > 0.006) { walkTo(dd, fx); return { mouth: 1, ear: -0.3 }; }
+        dd.move = null; dd.facing = dir; dd.sniffing = clock;
+        say(dd, 'RAINBOW!!', 1.4, 'happy');
+      }
+      const s = clock - dd.sniffing;
+      if (s < 2.6) {
+        const n = Math.floor(s / 0.45);
+        if (n !== dd.tried) { dd.tried = n; puff(r.x, groundY(), 100, true); }
+        return { bow: 0.18, ph: t * 30, amp: 0.25, head: 0.3 };
+      }
+      if (!dd.took) {
+        dd.took = 1;
+        r.coin = prop('treat', COIN_PX); r.coinT = clock;
+        say(dd, 'GOLD?!', 2.2, 'happy');
+        later(1.2, () => free(dogs[F]) && interrupt(dogs[F], 'claim'));
+        const m = dogs[M];
+        later(2, () => { if (free(m) && onScreen(m) && !SCENE_ACTS.has(m.actName)) { interrupt(m, 'ignore'); say(m, 'how green.', 1.8); } });
+      }
+      if (s > 14) { r.done = true; dd.actT = dd.act.dur; return {}; }
+      return { sit: 1, mouth: 1, head: -0.2, y: -Math.abs(Math.sin(t * 9)) * 3, ear: 0.2 };
+    },
+  },
+  // Frank stalks over, shoos Ziggy off, and sits on the gold.
+  claim: f => needGround(f, 'claim') || {
+    dur: 20, run: 1,
+    pose: d => {
+      const r = rainbow, z = dogs[Z];
+      if (!r || r.out) { d.actT = d.act.dur; return {}; }
+      if (!d.settled) {
+        if (z.actName === 'goldig' && Math.abs(d.sx - z.sx) < 70) interrupt(z, 'slink');
+        if (Math.abs(d.sx - r.x) > 4) { walkTo(d, clamp(r.x / innerWidth, 0.03, 0.97)); return { ear: -0.2, head: -0.05 }; }
+        d.move = null; d.settled = clock;
+        r.coin?.remove(); r.coin = null;
+        say(d, 'mine.', 2.2);
+      }
+      if (clock - d.settled > 4.5) { r.done = true; d.actT = d.act.dur; return {}; }
+      return { sit: 1, head: -0.08, ear: -0.1 };
+    },
+  },
 });
 
 // ---------- taps ----------
@@ -1617,6 +1901,7 @@ export function setDogs(next) {
     press = lastTap = null;
     leaves = []; flies = []; bowl = null; rope = null; treat = null;
     tugS = stealS = pileSpot = null;
+    giftBox = sleigh = rainbow = null; confetti = []; confettiUntil = 0;
     lastPhase = null;
     document.documentElement.classList.remove('dog-held');
     return;
