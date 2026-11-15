@@ -1,0 +1,25 @@
+// What changed in each version, newest first. The version number is the one on
+// CACHE in sw.js: whenever that goes up for a deploy, add an entry here too.
+// (There was no version 4.)
+export const CHANGES = [
+  [21, '2026-11-15', 'Settings shows which version is loaded. Tap it to see what changed in each one.'],
+  [20, '2026-11-15', 'Holiday sayings and scenes for Thanksgiving, Christmas, New Year\'s, Valentine\'s and St. Patrick\'s.'],
+  [19, '2026-11-15', 'Christmas, New Year\'s, Valentine\'s and St. Patrick\'s outfits.'],
+  [18, '2026-11-15', 'Speech bubbles sit above the holiday hats.'],
+  [17, '2026-11-15', 'Holiday outfits, starting with Thanksgiving.'],
+  [16, '2026-11-15', 'More for the dogs to do: weather scenes, night scenes, scenes together and treats. The Now screen says why when there is nothing to show.'],
+  [15, '2026-11-14', 'Pick up the dogs: press and hold to drag, let go to drop or throw.'],
+  [14, '2026-11-14', 'Phones stay portrait: the page is covered when turned sideways.'],
+  [13, '2026-11-14', 'Browsers show the new icon instead of an old saved one.'],
+  [12, '2026-11-14', 'New app icon: the three dogs at golden hour. Today\'s forecast shows the station\'s recorded high once the forecast drops it.'],
+  [11, '2026-11-14', 'Ziggy has a black face with a white chin, and carries the ball in his mouth.'],
+  [10, '2026-11-14', 'A share link survives Add to Home Screen on iPhone.'],
+  [9, '2026-11-14', 'The sky follows real cloud cover and drizzle. The light/dark setting is gone.'],
+  [8, '2026-11-14', 'The dogs sit on their rumps with a folded hind leg.'],
+  [7, '2026-11-14', 'The dogs sit, bark when tapped and play with a tennis ball. Share your station with a link.'],
+  [6, '2026-11-14', 'Ziggy pesters Minnie, and Frank chases him off.'],
+  [5, '2026-11-14', 'Pixel sky, roaming pixel dogs, and drag to rearrange.'],
+  [3, '2026-11-14', 'Updates always show up straight away.'],
+  [2, '2026-11-14', 'Barometer look, with a light/dark setting.'],
+  [1, '2026-11-14', 'First version: the weather station dashboard.'],
+];
