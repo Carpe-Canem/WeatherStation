@@ -5,13 +5,16 @@
 // Dogs stand on "surfaces": the top of the tab bar (the ground), the top edges of tiles and cards,
 // and the big temperature. Surfaces are looked up afresh every frame, because the views re-render.
 // Debug: ?dogspeed=8 speeds everything up; ?dogact=zoomies forces an activity for every dog that has it;
-// ?dogact=ball throws a tennis ball every few seconds.
+// ?dogact=ball throws a tennis ball every few seconds; ?dogscene=howl|pile|tug|steal|rumble|stretch|treat
+// starts that scene (see "scenes" below) a couple of seconds in, then again every 25 seconds or so.
 
 import { render, box, NOSE, SIZE, mouthPoint } from './sprites.js';
+import { PUDDLES, W as SKY_W } from './sky.js';
 
 const q = new URLSearchParams(location.search);
 const SPEED = Math.max(0.1, +q.get('dogspeed') || 1);
 const FORCE = q.get('dogact');
+const FORCE_SCENE = q.get('dogscene');
 const K = 2; // screen pixels per sprite pixel
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -85,7 +88,7 @@ const ACTS = {
   grumble: d => { d.facing *= -1; return { dur: 2.6, bubble: 'hmph', pose: () => ({ sit: 1, head: 0.1 }) }; },
   gaze: still_([4, 8], (d, u, t) => ({ sit: 1, head: -0.38 + 0.04 * Math.sin(t) })),
   wanderoff: d => needGround(d, 'wanderoff') || (walkTo(d, d.fx < 0.5 ? -0.3 : 1.3), d.queue.push('comeback'), { dur: rnd(14, 22), untilArriveThenWait: 1 }),
-  comeback: d => { walkTo(d, rnd(0.2, 0.8)); return { dur: 15, untilArrive: 1 }; },
+  comeback: d => { walkTo(d, rnd(0.2, 0.8)); d.queue.unshift('greeted'); return { dur: 15, untilArrive: 1 }; },
   // Weather
   shake: still_([1, 1.3], () => ({ shake: 1 })),
   splash: d => needGround(d, 'splash') || { dur: 2.6, pose: (dd, u, t) => ({ y: -Math.abs(Math.sin(t * 7)) * 5, splash: (t * 7 / Math.PI) % 1, mouth: 1, amp: 0.3, ph: 1.2 }) },
@@ -96,7 +99,8 @@ const ACTS = {
   catch: still_([2.5, 3.5], (d, u, t) => ({ y: -Math.abs(Math.sin(t * 5)) * 7, mouth: 1, head: -0.3 })),
   dig: still_([2, 3], (d, u, t) => ({ bow: 0.18, ph: t * 30, amp: 0.25, head: 0.3 })),
   curl: still_([15, 30], () => ({ lie: 1, eyes: 0, head: 0.38 })),
-  sploot: still_([10, 20], () => ({ lie: 1, head: 0.3 })),
+  // Flat on the belly, back legs splayed out behind: as much of the dog on the cool ground as possible.
+  sploot: still_([10, 20], (d, u, t) => ({ lie: 1, head: 0.36, legB: -2.1, legF: 0.25, eyes: Math.sin(t * 0.6 + d.seed) > 0.6 ? 0 : 1 })),
   shade: d => (d.surf === 'ground' && Math.random() < 0.6 ? (d.queue.push('shade'), ACTS.hop(d)) : { dur: rnd(12, 20), pose: () => ({ lie: 1 }) }),
   sunbathe: still_([15, 25], () => ({ lie: 1, eyes: 0, head: -0.05 })),
   shadow: still_([2.5, 3.5], (d, u, t) => { const f = Math.floor(t * 3) % 2 ? 1 : -1; d.facing = f; return { ph: t * 14, amp: 0.5, mouth: 1 }; }),
@@ -135,7 +139,7 @@ function interrupt(d, name) {
 }
 function canRuckus() {
   const m = dogs[M];
-  return !still && !grab && !k.night && !k.hot && !k.rain && !k.snowing && clock - lastRuckus > RUCKUS_GAP
+  return !still && !grab && !treat && !inScene() && !k.night && !k.hot && !k.rain && !k.snowing && !k.fog && clock - lastRuckus > RUCKUS_GAP
     && onScreen(m) && !['hide', 'wanderoff', 'comeback'].includes(m.actName);
 }
 
@@ -143,6 +147,7 @@ Object.assign(ACTS, {
   // Ziggy: goes to Minnie, play-bows, then lunges with a nip, over and over.
   pester: z => {
     lastRuckus = clock;
+    nextScene = Math.max(nextScene, clock + 60);
     return {
       dur: 14,
       pose: (d, u, t) => {
@@ -192,6 +197,7 @@ Object.assign(ACTS, {
     }
     walkTo(z, away > 0 ? 1.35 : -0.35);
     z.queue.push('comeback');
+    z.fled = 1;
     return { dur: rnd(5, 8), run: 1, untilArriveThenWait: 1, pose: () => ({ mouth: 1, ear: -0.35 }) };
   },
   // Frank: back to Minnie's side, sitting watch with his back to her.
@@ -204,6 +210,8 @@ Object.assign(ACTS, {
       dur: rnd(10, 14),
       pose: d => {
         if (d.move) return {};
+        // She's moved on (or was still running when he set off): catch up.
+        if (m.surf === d.surf && !m.jump && Math.abs(d.sx - m.sx) > 50) { walkTo(d, beside(m, d, 30)); return {}; }
         d.facing = d.sx < m.sx ? -1 : 1;
         return { sit: 1, head: -0.06, ear: -0.1 };
       },
@@ -218,8 +226,12 @@ function onNip(z, m) {
   if (f.actName !== 'rescue') setTimeout(() => interrupt(f, 'rescue'), 450 / SPEED);
 }
 
+/** Frank won't stand on hot pavement and Minnie won't set foot in snow, if there is anywhere else to be. */
+const avoidsGround = d => !!k && ((d.def.k === 'f' && k.hotGround) || (d.def.k === 'm' && k.snowing)) && curS.size > 1;
+
 function needGround(d, act) {
   if (d.surf === 'ground') return null;
+  if (avoidsGround(d)) return ACTS.refuse(d);
   d.queue.unshift(act);
   jumpTo(d, ['ground', rnd(0.15, 0.85)]);
   return { dur: 9, untilLand: 1 };
@@ -234,22 +246,23 @@ function hopTarget(d) {
   const S = surfaces(), opts_ = [];
   for (const key of S.keys()) {
     if (key === d.surf) continue;
-    if (key === 'ground' && d.def.k === 'f' && k?.hotGround) continue; // Frank won't touch hot pavement
+    if (key === 'ground' && avoidsGround(d)) continue;
     const w = key === 'ground' ? 2.5 : key === 'hero' ? (d.def.k === 'm' ? 2 : 0.6) : 1;
     opts_.push([key, w]);
   }
   return opts_.length ? [pick(opts_), rnd(0.15, 0.85)] : ['ground', rnd(0.1, 0.9)];
 }
 
-function jumpTo(d, [key, fx]) {
-  d.jump = { from: [d.surf, d.fx], to: [key, fx], t: 0, dur: 0.75 };
+/** Jumps to fx on a surface; lift caps the arc's height (a low hop), dur is in seconds. */
+function jumpTo(d, [key, fx], lift, dur = 0.75) {
+  d.jump = { from: [d.surf, d.fx], to: [key, fx], t: 0, dur, lift };
   d.move = null;
 }
 
 // What each dog tends to do, given the weather.
 function weights(d) {
   const z = d.def.k === 'z', f = d.def.k === 'f', m = d.def.k === 'm';
-  if (k.night) return [['nap', 10], ['lie', 1.5], ['sit', 0.4], ['wander', m ? 0.5 : 0.05], ['look', f ? 0.6 : 0.1]];
+  if (k.night) return [['nap', 10], ['lie', 1.5], ['sit', 0.4], ['wander', m ? 0.5 : 0.05], ['look', f ? 0.6 : 0.1], ['snap', z && flies.length ? 3 : 0]];
   const w = z
     ? { sit: 3, lie: 3, nap: 1, look: 1.5, scratch: 0.7, yawn: 0.5, wander: 3, hop: 2.5, sniff: 1, playbow: 0.8, zoomies: 0.8, pester: canRuckus() ? 1.4 : 0 }
     : f
@@ -258,11 +271,17 @@ function weights(d) {
   const add = (o) => { for (const [a, v] of Object.entries(o)) w[a] = (w[a] || 0) + v; };
   if (k.rain) z ? add({ splash: 4, shake: 1.5 }) : f ? add({ shake: 2, glare: 3 }) : add({ hide: 4, shake: 1 });
   else if (k.puddles && z) add({ splash: 2 });
-  if (k.windy) z ? add({ chase: 4 }) : f ? add({ bark: 3 }) : 0;
-  if (k.snowing) z ? add({ catch: 4, dig: 1.5 }) : m ? add({ curl: 3 }) : add({ sit: 2 });
-  else if (k.cold) z ? add({ dig: 0.5 }) : m ? add({ curl: 3 }) : 0;
+  if (k.puddles) z ? add({ stomp: k.rain ? 1.5 : 2.5 }) : f ? add({ puddleglare: 1.5 }) : 0;
+  if (k.windy) z ? add({ chase: 1.5, leafchase: 4 }) : f ? add({ bark: 3 }) : 0;
+  if (k.snowing) {
+    z ? add({ catch: 3, pounce: 4, dig: 1.5 }) : m ? add({ curl: 2, refuse: d.surf !== 'ground' ? 3 : 0 }) : add({ snowsulk: 4 });
+    if (m) w.wanderoff = 0;
+  } else if (k.cold) z ? add({ dig: 0.5 }) : m ? add({ curl: 3 }) : 0;
+  // A frosty morning: zoomies, breath puffing.
+  if (k.frost && !k.night) z ? add({ zoomies: 3 }) : m ? add({ zoomies: 0.5 }) : 0;
+  if (k.fog) { add({ sniff: 6 }); w.hop *= 0.3; }
   if (k.hot) {
-    z ? add({ sploot: 5 }) : f ? add({ lie: 3 }) : add({ shade: 4 });
+    z ? add({ sploot: 5, drink: bowl ? 2.5 : 0 }) : f ? add({ lie: 3, sploot: 2 }) : add({ shade: 4, drink: bowl ? 1.5 : 0 });
     w.zoomies = 0; w.playbow = (w.playbow || 0) * 0.3; w.wander *= 0.4; w.hop *= 0.5;
   }
   if (k.sunny && !k.hot) z ? add({ shadow: 2 }) : f ? add({ squint: 2 }) : add({ sunbathe: 4 });
@@ -270,11 +289,17 @@ function weights(d) {
   return Object.entries(w);
 }
 
+// Per-activity scratch state, cleared whenever a dog starts something new.
+const FRESH = {
+  turned: 0, nipped: 0, chasing: 0, landed: 0, said: 0, snapped: 0, drinkAt: 0, pounced: 0, looked: 0, hopped: 0,
+  bowed: 0, took: 0, nudged: 0, barked: 0, settled: 0, sniffing: 0, tried: 0,
+};
 function choose(d) {
-  d.turned = 0; d.slow = 1; d.move = null; d.nipped = 0; d.chasing = 0;
+  Object.assign(d, FRESH);
+  d.slow = 1; d.move = null;
   let name = d.queue.shift();
-  // Frank won't stand on hot pavement: first thing, he finds a tile.
-  if (!name && !still && k.hotGround && d.def.k === 'f' && d.surf === 'ground' && surfaces().size > 1) name = 'hop';
+  // Frank won't stand on hot pavement, nor Minnie in snow: first thing, they find a tile.
+  if (!name && !still && d.surf === 'ground' && avoidsGround(d) && surfaces().size > 1) name = 'hop';
   if (!name) {
     if (FORCE && ACTS[FORCE] && weights(d).some(([a]) => a === FORCE)) name = FORCE;
     else if (still) name = pick([['sit', 1], ['lie', 1]]);
@@ -339,8 +364,7 @@ const noseOff = d => (NOSE[d.def.k][0] * SIZE[d.def.k] - d.box.cx) * K;
 
 function ballReady() {
   if (FORCE === 'ball') return clock > nextBall;
-  return clock > nextBall && !still && !grab && !k.night && !k.snowing
-    && !dogs.some(d => ['pester', 'rescue', 'flee', 'flinch'].includes(d.actName));
+  return clock > nextBall && !still && !grab && !treat && !k.night && !k.snowing && !inScene();
 }
 
 function throwBall() {
@@ -421,7 +445,7 @@ function step(d, dt, t, S) {
   if (d.jump) {
     const j = d.jump;
     j.t += dt / j.dur;
-    if (j.t >= 1) { d.surf = j.to[0]; d.fx = j.to[1]; d.jump = null; if (a?.untilLand) d.actT = a.dur; }
+    if (j.t >= 1) { d.surf = j.to[0]; d.fx = j.to[1]; d.jump = null; d.landed = 1; if (a?.untilLand) d.actT = a.dur; }
   } else if (d.move) {
     const s = S.get(d.surf) || S.get('ground');
     const speed = ((a?.run ? d.def.run : d.def.walk) * d.slow) / Math.max(80, s.r - s.l);
@@ -454,9 +478,14 @@ function step(d, dt, t, S) {
   // Weather touches that apply whatever they are doing.
   if (k.hot) pose.tongue = 1;
   if (k.cold && d.def.k === 'f') pose.sweater = 1;
-  if (k.cold && !k.night) pose.puff = ((t + d.seed) % 2.6) / 2.6 < 0.6 ? ((t + d.seed) % 2.6) / 1.56 : 0;
+  // Breath clouds, quicker when running.
+  if (k.cold && !k.night) { const per = d.act?.run && d.walking ? 1.1 : 2.6, c = ((t + d.seed) % per) / per; pose.puff = c < 0.6 ? c / 0.6 : 0; }
   if (k.windy) pose.ear = d.def.k === 'm' ? -0.9 : (pose.ear || 0) + Math.sin(t * 20) * 0.25;
-  if (k.cold && !pose.lie && !d.walking) pose.x = Math.sin(t * 60) * 0.6; // shiver
+  // Shiver only at or below freezing, in short bursts: about once every 12s at 32°F, every 6s near 0°F.
+  if (k.freezing && !pose.lie && !d.walking && !SCENE_ACTS.has(d.actName)) {
+    const every = Math.max(6, 12 - Math.max(0, 32 - k.temp) * 0.2);
+    if ((t + d.seed * 7) % every < 1.1) pose.x = (pose.x || 0) + Math.sin(t * 60) * 0.6;
+  }
   d.pose = pose;
 }
 
@@ -465,7 +494,8 @@ function place(d, S) {
   if (d.jump) {
     const j = d.jump, A = j.fromXY ? { x: j.fromXY[0], y: j.fromXY[1] } : at(S, ...j.from), B = at(S, ...j.to), u = Math.min(1, j.t);
     x = A.x + (B.x - A.x) * u;
-    const lift = Math.min(36 + Math.abs(B.y - A.y) * 0.25, Math.max(6, Math.min(A.y, B.y) - (S.ceil ?? 0)));
+    const room = Math.max(6, Math.min(A.y, B.y) - (S.ceil ?? 0));
+    const lift = Math.min(j.lift ?? 36 + Math.abs(B.y - A.y) * 0.25, room);
     y = A.y + (B.y - A.y) * u - Math.sin(Math.PI * u) * lift;
     d.facing = B.x >= A.x ? 1 : -1;
   } else ({ x, y } = at(S, d.surf, d.fx));
@@ -488,7 +518,9 @@ function place(d, S) {
   }
 }
 
+let skew = 0; // debug: time added by __step
 function frame(now) {
+  now += skew;
   raf = requestAnimationFrame(frame);
   if (!k) return;
   const t = now / 1000, rdt = Math.min(0.05, t - (frame.t || t)), dt = Math.min(0.1, (t - (frame.t || t))) * (still ? 0 : SPEED);
@@ -500,15 +532,21 @@ function frame(now) {
   const S = frame.S;
   curS = S;
   clock += dt;
+  director();
   if (!ball && ballReady()) throwBall();
   if (ball) moveBall(dt, S);
+  fogBumps();
   for (const d of dogs) {
     if (d.grabbed) grabStep(d, rdt, t, S);
     else step(d, dt, still ? 0 : t * SPEED, S);
     if (d.squash > 0) d.squash = Math.max(0, d.squash - rdt);
     if (draw || d.grabbed) render(d.def.k, d.pose, d.ctx);
     if (d.grabbed) placeGrab(d, S); else place(d, S);
+    // In fog they drift in and out of sight, speech bubbles and all.
+    const op = k.fog && !still && !d.grabbed ? (0.3 + 0.35 * (1 + Math.sin(clock * 0.35 + d.seed * 2.1))).toFixed(2) : '';
+    if (op !== d.op) { d.op = op; d.cv.style.opacity = d.bubble.style.opacity = d.fx_.style.opacity = op; }
   }
+  propsStep(dt, S);
 }
 
 // ---------- picking a dog up ----------
@@ -728,6 +766,740 @@ Object.assign(ACTS, {
   },
 });
 
+// ---------- props ----------
+// Things in the yard the dogs react to: wind-blown leaves, fireflies, paw prints in snow and frost,
+// a water bowl on the hottest days, a rope toy, a treat. Each lives in #pack, above the cards.
+
+let leaves = [], flies = [], bowl = null, rope = null, treat = null, nextLeaf = 0;
+let press = null, lastTap = null, lastPhase = null;
+const later = (secs, fn) => setTimeout(() => { if (k && dogs.length && !still) fn(); }, (secs * 1000) / SPEED);
+const free = d => !!d && !d.grabbed;
+const groundY = () => curS.get('ground')?.y ?? innerHeight;
+const PUDDLE_FX = PUDDLES.map(([x, w]) => (x + w / 2) / SKY_W);
+function prop(cls, html = '') {
+  const e = document.createElement('span');
+  e.className = cls;
+  e.innerHTML = html;
+  root.append(e);
+  return e;
+}
+/** A point on top of a dog's head, in screen pixels. */
+function headPt(d) {
+  const [nx, ny] = NOSE[d.def.k], sc = SIZE[d.def.k], b = d.box;
+  return [d.sx + d.facing * ((nx - 12) * sc - b.cx) * K, d.sy - (b.footY - (ny + 3 + (d.pose?.y || 0)) * sc) * K];
+}
+/** A dog's mouth, in screen pixels. */
+function mouthXY(d) {
+  const [mx, my] = mouthPoint(d.pose || {}, d.def.k), sc = SIZE[d.def.k];
+  return [d.sx + d.facing * (mx * sc - d.box.cx) * K, d.sy - (d.box.footY - (my + 8) * sc) * K];
+}
+/** fx on a surface that puts a dog's nose at screen x, approaching from whichever side fits. */
+function noseTo(d, x, key = d.surf) {
+  const s = curS.get(key) || curS.get('ground'), w = Math.max(1, s.r - s.l);
+  let dir = Math.sign(x - d.sx) || d.facing, c = x - dir * noseOff(d);
+  if (c < s.l + 4 || c > s.r - 4) { dir = -dir; c = x - dir * noseOff(d); }
+  return { fx: clamp((c - s.l) / w, 0.01, 0.99), dir };
+}
+
+function propsStep(dt, S) {
+  leavesStep(dt);
+  fliesStep(dt);
+  printsStep();
+  bowlStep();
+  treatStep(dt, S);
+  ropeStep();
+}
+
+// Leaves: the same little orange and yellow leaves the sky blows past, but in front, where the dogs are.
+// Now and then one lands on a dog's head until it shakes it off.
+function leavesStep(dt) {
+  const px = innerWidth / SKY_W, gy = groundY();
+  if (k.windy && !k.snowing && !still && clock > nextLeaf && leaves.length < 3) {
+    nextLeaf = clock + rnd(1.5, 4.5);
+    const e = prop('leaf');
+    e.style.width = `${Math.round(px * 2)}px`; e.style.height = `${Math.max(2, Math.round(px))}px`;
+    e.style.background = Math.random() < 0.5 ? '#e0892f' : '#d4b13a';
+    const L = { el: e, x: -12, h: rnd(14, 90), ph: rnd(0, 9), v: (14 + k.gust * 0.6) * px * rnd(0.8, 1.2), sticky: Math.random() < 0.35, on: null, lift: 0 };
+    // A sticky one is aimed at someone's head.
+    const d = L.sticky && dogs.find(o => free(o) && o.surf === 'ground' && !o.jump);
+    if (d) L.h = gy - headPt(d)[1];
+    leaves.push(L);
+  }
+  for (const L of leaves) {
+    if (L.on) {
+      const d = L.on;
+      if (!free(d) || !dogs.includes(d)) L.on = null;
+      else {
+        [L.x, L.y] = headPt(d);
+        if (clock > L.off) {
+          L.on = null; L.h = gy - L.y; L.lift = 70;
+          if (!SCENE_ACTS.has(d.actName)) interrupt(d, 'shake');
+        }
+      }
+    }
+    if (!L.on) {
+      L.x += L.v * dt;
+      if (L.lift) { L.h += L.lift * dt; L.lift = Math.max(0, L.lift - 60 * dt); }
+      else L.h = Math.max(6, L.h - 5 * dt);
+      L.y = gy - L.h + Math.sin(clock * 4 + L.ph) * 5;
+      if (L.sticky && !leaves.some(o => o.on)) for (const d of dogs) {
+        if (!free(d) || d.jump || d.actName === 'leafchase') continue;
+        const [hx, hy] = headPt(d);
+        if (Math.abs(hx - L.x) < 14 && Math.abs(hy - L.y) < 16) {
+          L.on = d; L.sticky = false; L.off = clock + rnd(2.5, 4.5);
+          if (d.def.k === 'f') say(d, 'hmph', 1.5);
+          break;
+        }
+      }
+    }
+    L.el.style.transform = `translate(${Math.round(L.x)}px, ${Math.round(L.y)}px) rotate(${Math.round(Math.sin(clock * 6 + L.ph)) * 25}deg)`;
+  }
+  leaves = leaves.filter(L => {
+    const gone = L.caught || L.x > innerWidth + 20 || L.h > innerHeight;
+    if (gone) L.el.remove();
+    return !gone;
+  });
+}
+
+// Fireflies on warm summer nights, blinking low over the lawn.
+function fliesStep(dt) {
+  const want = !still && k.night && k.temp >= 65 && !k.raining ? 7 : 0;
+  while (flies.length < want) flies.push({ el: prop('fly'), x: rnd(0.05, 0.95) * innerWidth, h: rnd(20, 150), vx: 0, vh: 0, ph: rnd(0, 6), lit: false, next: clock + rnd(0, 3), dart: 0 });
+  if (flies.length > want) flies.splice(want).forEach(f => f.el.remove());
+  const gy = groundY();
+  for (const f of flies) {
+    f.vx += (Math.sin(clock * 0.7 + f.ph * 3) * 22 - f.vx) * Math.min(1, dt);
+    f.vh += (Math.cos(clock * 0.9 + f.ph * 5) * 12 - f.vh) * Math.min(1, dt);
+    f.x = clamp(f.x + f.vx * dt, 6, innerWidth - 6);
+    f.h = clamp(f.h + (f.vh + (f.dart > 0 ? 110 : 0)) * dt, 12, 190);
+    f.dart = Math.max(0, f.dart - dt);
+    if (clock > f.next) {
+      f.lit = !f.lit; f.next = clock + (f.lit ? rnd(0.8, 1.8) : rnd(1.2, 3.5));
+      f.el.classList.toggle('lit', f.lit);
+    }
+    f.el.style.transform = `translate(${Math.round(f.x)}px, ${Math.round(gy - f.h)}px)`;
+  }
+}
+
+// Paw prints behind a dog walking in snow or across a frosty lawn; they fade after a few seconds.
+function printsStep() {
+  if (still || !(k.snowing || k.frost)) return;
+  const gy = groundY();
+  for (const d of dogs) {
+    if (d.surf !== 'ground' || d.jump || !free(d) || !d.walking) { d.lastPrint = null; continue; }
+    if (d.lastPrint != null && Math.abs(d.sx - d.lastPrint) < 13) continue;
+    d.lastPrint = d.sx;
+    d.printSide = -(d.printSide || 1);
+    const e = prop(`print ${k.snowing ? 'snow' : 'frost'}`);
+    e.style.transform = `translate(${Math.round(d.sx + d.printSide * 4)}px, ${Math.round(gy - 3 + (d.printSide > 0 ? 1 : 0))}px)`;
+    e.addEventListener('animationend', () => e.remove());
+    const all = root.querySelectorAll('.print');
+    if (all.length > 60) all[0].remove();
+  }
+}
+
+const BOWL_PX = pix(['.wwwwwwwwww.', 'bwwwwwwwwwwb', 'bbbbbbbbbbbb', '.bbbbbbbbbb.', '..bbbbbbbb..'], { w: '#8fd0f5', b: '#3d7fc4' }, K);
+// A water bowl on the hottest days. One dog laps at a time; the next waits its turn.
+function bowlStep() {
+  const want = !still && k.hot && k.temp >= 90 && !k.night;
+  if (want && !bowl) bowl = { el: prop('bowl', BOWL_PX), fx: 0.1, user: null };
+  if (!want && bowl) { bowl.el.remove(); bowl = null; }
+  if (!bowl) return;
+  if (bowl.user && bowl.user.actName !== 'drink') bowl.user = null;
+  bowl.el.style.transform = `translate(${Math.round(bowl.fx * innerWidth - 12)}px, ${Math.round(groundY() - 10)}px)`;
+  bowl.el.classList.toggle('lap', !!bowl.user?.drinkAt);
+}
+
+// The rope toy: between two mouths during a tug, hanging from one, or dropped on the lawn to fade.
+const ROPE_ACTS = ['tugbring', 'tug', 'tugwin'];
+function ropeStep() {
+  if (!rope) return;
+  const holds = d => free(d) && ROPE_ACTS.includes(d.actName);
+  if (rope.a && !holds(rope.a)) rope.a = null;
+  if (rope.b && !holds(rope.b)) rope.b = null;
+  if (!rope.a && rope.b) { rope.a = rope.b; rope.b = null; }
+  let x1, y1, x2, y2;
+  if (rope.a && rope.b) { [x1, y1] = mouthXY(rope.a); [x2, y2] = mouthXY(rope.b); }
+  else if (rope.a) { [x1, y1] = mouthXY(rope.a); x2 = x1 - rope.a.facing * 16; y2 = y1 + 11; }
+  else {
+    if (!rope.fade) rope.fade = clock + 1.5;
+    x1 = rope.x ?? innerWidth / 2; y1 = y2 = groundY() - 2; x2 = x1 + 22;
+    rope.el.style.opacity = Math.max(0, (rope.fade - clock) / 1.5).toFixed(2);
+    if (clock > rope.fade) { rope.el.remove(); rope = null; tugS = null; return; }
+  }
+  rope.x = Math.min(x1, x2);
+  const len = Math.hypot(x2 - x1, y2 - y1), ang = Math.atan2(y2 - y1, x2 - x1);
+  rope.el.style.width = `${Math.round(len)}px`;
+  rope.el.style.transform = `translate(${Math.round(x1)}px, ${Math.round(y1 - 2)}px) rotate(${ang.toFixed(3)}rad)`;
+}
+
+// ---------- weather and time-of-day activities ----------
+
+Object.assign(ACTS, {
+  // Minnie at the edge of her tile, peering down at the snow (or Frank at the hot pavement): no.
+  refuse: d => {
+    if (d.surf === 'ground') return { dur: 2.5, bubble: 'nope.', pose: () => ({ sit: 1, head: 0.1, ear: -0.3 }) };
+    const edge = d.fx < 0.5 ? 0.05 : 0.95;
+    walkTo(d, edge);
+    d.queue.push('look');
+    return {
+      dur: 6,
+      pose: (dd, u, t) => {
+        if (dd.move) return {};
+        if (!dd.said) { dd.said = 1; say(dd, k.snowing ? 'nope.' : 'too hot.', 1.8); }
+        const peek = (t * 1.1) % 1 < 0.45;
+        return { head: 0.4, legF: peek ? 0.9 : 0, ear: -0.3 };
+      },
+    };
+  },
+  // Ziggy: a crouch and a wiggle, a leap, and nose-first into the snow. Then a good shake.
+  pounce: d => needGround(d, 'pounce') || (d.queue.unshift('shake'), {
+    dur: 2.4,
+    pose: (dd, u, t) => {
+      if (u < 0.35) return { bow: 0.18, ear: -0.25, head: 0.1, x: Math.sin(t * 30) * 0.5 };
+      if (u < 0.72) { const v = (u - 0.35) / 0.37; return { y: -Math.sin(v * Math.PI) * 16, x: dd.facing * v * 6, head: 0.2 + v * 0.3, legF: 0.6, legB: -0.5 }; }
+      if (!dd.pounced) {
+        dd.pounced = 1;
+        dd.fx = clamp(dd.fx + (dd.facing * 6 * K) / width(dd.surf), 0.02, 0.98);
+        puff(dd.sx + dd.facing * (noseOff(dd) + 6 * K), groundY(), 300, true);
+      }
+      return { bow: 0.35, head: 0.6, ear: -0.1 };
+    },
+  }),
+  // Frank, in his sweater, with his back to the weather.
+  snowsulk: () => ({ dur: rnd(6, 10), bubble: Math.random() < 0.4 ? 'hmph' : undefined, pose: (d, u, t) => ({ sit: 1, head: 0.16, ear: -0.35, eyes: Math.sin(t * 0.8 + d.seed) > 0.7 ? 0 : 1 }) }),
+  // Ziggy: puddle to puddle, a splash at every landing.
+  stomp: d => {
+    const g = needGround(d, 'stomp');
+    if (g) return g;
+    // Along the row from the nearer end, and sometimes back again.
+    const list = [...PUDDLE_FX].sort((a, b) => (d.fx < 0.5 ? a - b : b - a));
+    if (Math.random() < 0.5) list.push(...list.slice(0, -1).reverse());
+    d.stomp = { list, i: 0, next: clock + 0.2, hit: -9 };
+    d.queue.push('shake');
+    return {
+      dur: 18, run: 1,
+      pose: (dd, u, t) => {
+        const s = dd.stomp;
+        if (dd.jump) return { mouth: 1, ear: -0.3, legF: 0.5, legB: -0.5 };
+        if (dd.landed) { dd.landed = 0; s.hit = clock; s.next = clock + 0.5; puff(dd.sx, groundY(), 300, true); }
+        if (clock > s.next) {
+          if (s.i >= s.list.length) { dd.actT = dd.act.dur; return {}; }
+          jumpTo(dd, ['ground', s.list[s.i++]], 22, 0.5);
+          return {};
+        }
+        const h = clock - s.hit;
+        return h < 0.4 ? { mouth: 1, splash: h / 0.4, ear: 0.2 } : { mouth: 1, head: -0.1 };
+      },
+    };
+  },
+  // Frank: walks up to a puddle, considers it, and hops over rather than get his feet wet.
+  puddleglare: d => {
+    const g = needGround(d, 'puddleglare');
+    if (g) return g;
+    const i = PUDDLE_FX.reduce((b, p, j) => (Math.abs(p - d.fx) < Math.abs(PUDDLE_FX[b] - d.fx) ? j : b), 0);
+    const cx = PUDDLE_FX[i] * innerWidth, half = (PUDDLES[i][1] / 2) * (innerWidth / SKY_W);
+    const dir = cx > d.sx ? 1 : -1;
+    const stop = (cx - dir * (half + noseOff(d) + 4)) / innerWidth, land = (cx + dir * (half + 22)) / innerWidth;
+    if (land < 0.03 || land > 0.97 || Math.abs(stop - d.fx) < 0.01) return { dur: 1 };
+    walkTo(d, stop);
+    return {
+      dur: 12,
+      pose: (dd) => {
+        if (dd.move || dd.jump) return {};
+        if (dd.hopped) { dd.actT = dd.act.dur; return {}; }
+        dd.facing = dir;
+        if (!dd.looked) dd.looked = clock;
+        if (clock - dd.looked < 1.6) return { head: 0.4, ear: -0.2 };
+        dd.hopped = 1;
+        say(dd, 'hmph', 1.4);
+        jumpTo(dd, ['ground', land], 24, 0.6);
+        return {};
+      },
+    };
+  },
+  // Ziggy after the leaves: runs one down and snaps; sometimes he gets it.
+  leafchase: d => needGround(d, 'leafchase') || {
+    dur: rnd(4, 7), run: 1,
+    pose: (dd, u, t) => {
+      const L = leaves.filter(l => !l.on && !l.lift && l.x > 0 && l.x < innerWidth).sort((a, b) => Math.abs(a.x - dd.sx) - Math.abs(b.x - dd.sx))[0];
+      if (!L) { if (!dd.move) walkTo(dd, dd.fx < 0.5 ? rnd(0.6, 0.9) : rnd(0.1, 0.4)); return { mouth: 1, head: -0.15 }; }
+      const { fx, dir } = noseTo(dd, L.x + 6);
+      walkTo(dd, fx); dd.facing = dir;
+      const nose = dd.sx + dir * noseOff(dd);
+      if (Math.abs(nose - L.x) < 16 && L.h < 60) {
+        if (L.h < 34 && Math.random() < 0.5) { L.caught = true; say(dd, 'got it!', 1.2, 'happy'); dd.actT = dd.act.dur - 0.4; }
+        else L.lift = 90; // it gets away
+      }
+      return { mouth: Math.floor(t * 8) % 2, ear: -0.3, head: -0.25, y: L.h < 60 ? -Math.abs(Math.sin(t * 9)) * 4 : 0 };
+    },
+  },
+  // Lapping at the water bowl, or waiting a turn beside it.
+  drink: d => needGround(d, 'drink') || (!bowl ? null : {
+    dur: 30, // ends itself after a drink; the time covers waiting for a turn
+    pose: (dd, u, t) => {
+      if (!bowl) { dd.actT = dd.act.dur; return {}; }
+      const bx = bowl.fx * innerWidth;
+      if (bowl.user && bowl.user !== dd) {
+        if (!dd.move && Math.abs(dd.sx - (bx + 80)) > 10) walkTo(dd, clamp((bx + 80) / innerWidth, 0.03, 0.97));
+        if (dd.move) return { tongue: 1 };
+        dd.facing = -1;
+        return { sit: 1, head: -0.05, tongue: 1 };
+      }
+      bowl.user = dd;
+      if (!dd.drinkAt) {
+        const { fx, dir } = noseTo(dd, bx);
+        if (Math.abs(fx - dd.fx) > 0.004) { if (!dd.move) walkTo(dd, fx); return { tongue: 1 }; }
+        dd.facing = dir; dd.drinkAt = clock;
+      }
+      if (clock - dd.drinkAt > 4.5) { bowl.user = null; dd.actT = dd.act.dur; return {}; }
+      const lap = Math.floor(t * 8) % 2;
+      return { bow: 0.3, head: 0.65, tongue: lap, mouth: lap };
+    },
+  }),
+  // Ziggy, wide awake on a summer night, snapping at fireflies. He never catches one.
+  snap: d => needGround(d, 'snap') || {
+    dur: rnd(6, 10),
+    pose: (dd, u, t) => {
+      const f = flies.filter(o => o.lit && o.h < 110).sort((a, b) => Math.abs(a.x - dd.sx) - Math.abs(b.x - dd.sx))[0] || flies[0];
+      if (!f) { dd.actT = dd.act.dur; return {}; }
+      const { fx, dir } = noseTo(dd, f.x);
+      if (Math.abs(fx - dd.fx) > 0.02 && !dd.snapped) { walkTo(dd, fx); dd.slow = 1.4; return { head: -0.3, ear: 0.1 }; }
+      dd.move = null; dd.facing = dir;
+      const c = (t * 1.4) % 1;
+      if (c < 0.5) { dd.snapped = 0; return { head: -0.42, ear: 0.15 }; }
+      if (!dd.snapped) { dd.snapped = 1; f.dart = 0.8; f.lit = false; f.el.classList.remove('lit'); f.next = clock + rnd(1, 2); }
+      return { y: -Math.sin(((c - 0.5) / 0.5) * Math.PI) * 6, mouth: Math.floor(t * 10) % 2, head: -0.3 };
+    },
+  },
+  // Foggy: two dogs nose-down blunder into each other.
+  bonk: d => {
+    const dir = d.bonkFrom || d.facing;
+    d.facing = dir;
+    say(d, d.def.k === 'f' ? 'hey!' : d.def.k === 'z' ? '!' : '?', 1.2);
+    d.queue.push('look');
+    return { dur: 1.3, pose: (dd, u) => ({ x: -dir * 3 * Math.sin(Math.min(1, u * 3) * Math.PI), y: u < 0.25 ? -Math.sin((u / 0.25) * Math.PI) * 3 : 0, ear: 0.4, head: -0.1 }) };
+  },
+  // First thing in the day: front stretch, back stretch, then a yawn.
+  stretch: () => ({
+    dur: 3.2,
+    pose: (d, u) => (u < 0.5
+      ? { bow: 0.3, legF: 0.5, head: -0.12, eyes: 0, ear: -0.2 }
+      : { legB: -0.7, legF: -0.15, head: -0.18, eyes: u > 0.9 ? 1 : 0, ear: -0.1 }),
+  }),
+  // Thunder: Minnie bolts for the edge and lies flat, shaking.
+  cower: d => {
+    walkTo(d, d.fx < 0.5 ? 0.04 : 0.96);
+    d.slow = 1.4;
+    return { dur: rnd(14, 20), run: 1, bubble: '!', pose: (dd, u, t) => (dd.move ? { ear: -0.8, head: 0.15 } : { lie: 1, eyes: 0, ear: -0.9, head: 0.38, x: Math.sin(t * 50) * 0.4 }) };
+  },
+  // Ziggy barks at the sky, then paces.
+  skybark: d => { d.queue.push('pace'); return { dur: rnd(2.5, 3.5), bubble: 'WOOF?!', pose: (dd, u, t) => { const m = Math.floor(t * 4) % 2; return { head: -0.42 - 0.08 * m, mouth: m, ear: -0.1 }; } }; },
+  // A howl at the moon, eyes shut, then back to sleep.
+  howl: d => {
+    d.queue.push('nap');
+    return {
+      dur: rnd(4, 5.5), bubble: { z: 'AWOOOO!', f: 'aroooo', m: 'ooo?' }[d.def.k],
+      pose: (dd, u, t) => { const open = u > 0.12 && u < 0.88; return { sit: 1, head: open ? -0.5 + 0.03 * Math.sin(t * 6) : -0.3, mouth: open ? 1 : 0, eyes: open ? 0 : 1, ear: -0.35 }; },
+    };
+  },
+});
+
+function fogBumps() {
+  if (!k.fog || still) return;
+  for (let i = 0; i < dogs.length; i++) for (let j = i + 1; j < dogs.length; j++) {
+    const a = dogs[i], b = dogs[j];
+    if (!free(a) || !free(b) || a.jump || b.jump || a.surf !== b.surf || !(a.walking || b.walking)) continue;
+    if (clock < (a.bonkT || 0) || clock < (b.bonkT || 0) || SCENE_ACTS.has(a.actName) || SCENE_ACTS.has(b.actName)) continue;
+    const dx = (b.sx ?? 0) - (a.sx ?? 0), s = Math.sign(dx) || 1;
+    if (Math.abs(dx) < 30 && ((a.walking && a.facing === s) || (b.walking && b.facing === -s))) {
+      a.bonkT = b.bonkT = clock + 25;
+      if (Math.random() < 0.5) continue; // they sidestep, this time
+      a.bonkFrom = s; b.bonkFrom = -s;
+      interrupt(a, 'bonk'); interrupt(b, 'bonk');
+    }
+  }
+}
+
+function maybeStretch(prev) {
+  if (still || k.night) return;
+  const today = new Date().toDateString();
+  let last = null;
+  try { last = localStorage.getItem('dogs.stretched'); } catch { /* storage unavailable */ }
+  if (prev !== 'night' && last === today) return;
+  if (prev != null && prev !== 'night') return; // only on opening the app, or when night turns to dawn
+  try { localStorage.setItem('dogs.stretched', today); } catch { /* storage unavailable */ }
+  later(1.2, startStretch);
+}
+function startStretch() {
+  dogs.forEach((d, i) => later(i * 0.9, () => { if (free(d)) { interrupt(d, 'stretch'); d.queue.push('yawn'); } }));
+}
+
+// ---------- scenes ----------
+// Little set pieces with all three dogs. One runs at a time, and the ball, the ruckus and other scenes
+// wait until it's over. A dog in one of these activities counts as in a scene.
+
+const SCENE_ACTS = new Set([
+  'pester', 'flinch', 'rescue', 'flee', 'guardM', 'howl', 'pileup', 'tugwait', 'tugbring', 'tug', 'tugwin', 'tuglose',
+  'steal', 'budge', 'evict', 'slink', 'reclaim', 'cower', 'skybark', 'race', 'chomp', 'beg', 'greeted', 'buttsniff', 'stretch',
+]);
+const inScene = () => dogs.some(d => SCENE_ACTS.has(d.actName) || d.queue.some(a => SCENE_ACTS.has(a)));
+let nextScene = FORCE_SCENE ? 2 : rnd(45, 100), tugS = null, stealS = null, pileSpot = null;
+
+const SCENES = {
+  howl: { when: () => k.night, w: 1, go: startHowl },
+  pile: { when: () => k.night || k.freezing, w: () => (k.night ? 1.2 : 0.5), go: startPile },
+  tug: { when: () => !k.night && !k.raining && !k.hot && !k.falling && !k.fog, w: 1, go: startTug },
+  steal: { when: () => k.sunny && !k.hot && dogs[M].actName === 'sunbathe' && onScreen(dogs[M]), w: 4, go: startSteal },
+  rumble: { when: () => k.falling, w: 2, go: startRumble },
+  stretch: { when: () => false, go: startStretch },
+  treat: { when: () => false, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3) },
+};
+
+// The gap between scenes counts from when the last one ended, so a long one (a nap pile) doesn't
+// leave the next one due the moment it's over.
+const SCENE_GAP = [60, 150];
+let sceneOn = false;
+function director() {
+  if (!dogs.length) return;
+  if (inScene() || treat) { sceneOn = true; return; }
+  if (sceneOn) { sceneOn = false; nextScene = Math.max(nextScene, clock + (FORCE_SCENE ? 25 : rnd(...SCENE_GAP))); }
+  if (still || grab || clock < nextScene || dogs.some(d => d.grabbed)) return;
+  if (FORCE_SCENE) { nextScene = clock + 25; SCENES[FORCE_SCENE]?.go(); return; }
+  const ok = Object.values(SCENES).filter(s => s.when());
+  if (!ok.length) { nextScene = clock + 5; return; }
+  nextScene = clock + rnd(...SCENE_GAP);
+  pick(ok.map(s => [s, typeof s.w === 'function' ? s.w() : s.w])).go();
+}
+
+// Moon howl: one starts, the others join in one at a time.
+function startHowl() {
+  [...dogs].sort(() => Math.random() - 0.5).forEach((d, i) => later(i * 1.8, () => free(d) && interrupt(d, 'howl')));
+}
+
+// Thunder rumbles (the pressure is falling): Minnie hides, Frank guards her, Ziggy barks at the sky.
+function startRumble() {
+  const [z, f, m] = dogs;
+  const flash = prop('flash');
+  setTimeout(() => flash.remove(), 900);
+  if (free(m)) interrupt(m, 'cower');
+  later(0.3, () => free(z) && interrupt(z, 'skybark'));
+  later(2.2, () => free(f) && interrupt(f, 'guardM')); // once she's at the edge
+}
+
+// Nap pile: all three curled up together, Minnie in the middle, on her tile if it's big enough.
+function startPile() {
+  const m = dogs[M];
+  let surf = onScreen(m) && width(m.surf) >= 120 ? m.surf : 'ground';
+  // In snow, Minnie won't come down: they pile up on the widest tile instead.
+  if (surf === 'ground' && k.snowing) {
+    for (const [key, s] of curS) if (!s.ground && s.r - s.l >= 120 && (surf === 'ground' || s.r - s.l > width(surf))) surf = key;
+  }
+  const w = width(surf);
+  const c = surf === m.surf ? clamp(m.fx, 60 / w, 1 - 60 / w) : rnd(0.3, 0.7);
+  pileSpot = { surf, c, fx: { m: c, f: clamp(c - 30 / w, 0.02, 0.98), z: clamp(c + 34 / w, 0.02, 0.98) } };
+  dogs.forEach((d, i) => later(i * 0.6, () => free(d) && interrupt(d, 'pileup')));
+}
+
+// Tug-of-war: Ziggy brings the rope to Frank; they pull until one wins and takes a lap with it.
+function startTug() {
+  const [z, f] = dogs;
+  if (!free(z) || !free(f)) return;
+  tugS = { end: 0, winner: null };
+  if (!rope) rope = { el: prop('rope') };
+  Object.assign(rope, { a: z, b: null, fade: 0 });
+  rope.el.style.opacity = '';
+  interrupt(f, 'tugwait');
+  interrupt(z, 'tugbring');
+  // Minnie wants no part of it: out of the way if she's near Frank.
+  const m = dogs[M];
+  if (free(m) && m.surf === 'ground' && !SCENE_ACTS.has(m.actName) && Math.abs((m.sx ?? 0) - (f.sx ?? 0)) < 160) {
+    m.dropX = f.sx; // walkoff heads away from here
+    interrupt(m, 'walkoff');
+  }
+}
+
+// Stolen spot: Ziggy nudges Minnie out of her patch of sun; Frank makes him give it back.
+function startSteal() {
+  const [z, , m] = dogs;
+  if (!free(z) || !onScreen(m)) return;
+  stealS = { surf: m.surf, fx: m.fx };
+  interrupt(z, 'steal');
+}
+
+Object.assign(ACTS, {
+  pileup: d => {
+    const p = pileSpot;
+    if (!p) return null;
+    const fx = p.fx[d.def.k];
+    if (d.surf !== p.surf) { d.queue.unshift('pileup'); jumpTo(d, [p.surf, fx]); return { dur: 9, untilLand: 1 }; }
+    walkTo(d, fx);
+    d.slow = 0.8;
+    return {
+      dur: k.night ? rnd(70, 110) : rnd(30, 50), // a long sleep at night, a short huddle by day
+      pose: dd => {
+        if (dd.move) return {};
+        if (!dd.settled) {
+          dd.settled = 1;
+          dd.facing = dd.def.k === 'm' ? (Math.random() < 0.5 ? 1 : -1) : fx < p.c ? 1 : -1;
+          if (dd.def.k === 'm') say(dd, 'z z', 3);
+        }
+        return { lie: 1, eyes: 0, head: 0.38 };
+      },
+    };
+  },
+  tugwait: d => needGround(d, 'tugwait') || {
+    dur: 20,
+    pose: dd => {
+      if (!tugS || tugS.end) { dd.actT = dd.act.dur; return {}; }
+      dd.facing = dogs[Z].sx > dd.sx ? 1 : -1;
+      return { sit: 1, head: -0.05, ear: -0.1 };
+    },
+  },
+  tugbring: z => needGround(z, 'tugbring') || {
+    dur: 18,
+    pose: (d) => {
+      const f = dogs[F];
+      if (!tugS || !free(f) || f.actName !== 'tugwait') { d.actT = d.act.dur; return {}; }
+      if (f.surf !== 'ground' || f.jump) return { ear: 0.2 };
+      const gap = noseOff(d) + noseOff(f) + 26;
+      let side = Math.sign(f.sx - d.sx) || 1, x = f.sx - side * gap;
+      if (x < 12 || x > innerWidth - 12) { side = -side; x = f.sx - side * gap; }
+      if (Math.abs(d.sx - x) > 4 && !d.bowed) { walkTo(d, clamp(x / innerWidth, 0.02, 0.98)); d.slow = 0.8; return { ear: 0.2, head: -0.1 }; }
+      d.move = null; d.facing = side;
+      if (!d.bowed) d.bowed = clock;
+      if (clock - d.bowed < 1.2) return { bow: 0.2, ear: -0.2 };
+      tugS.end = clock + rnd(5, 8);
+      tugS.winner = Math.random() < 0.55 ? f : d;
+      rope.b = f;
+      interrupt(f, 'tug'); interrupt(d, 'tug');
+      say(d, 'rrr!', 1.5, 'happy'); say(f, 'GRRR', 1.8, 'growl');
+      return {};
+    },
+  },
+  tug: () => ({
+    dur: 30,
+    pose: (d, u, t) => {
+      const o = d === dogs[Z] ? dogs[F] : dogs[Z];
+      if (!tugS) { d.actT = d.act.dur; return {}; }
+      if (clock >= tugS.end) { interrupt(d, tugS.winner === d ? 'tugwin' : 'tuglose'); return {}; }
+      if (!free(o) || o.actName !== 'tug') { d.actT = d.act.dur; return {}; }
+      d.facing = o.sx > d.sx ? 1 : -1;
+      // Both lean back; the rope's give moves them together, first one way, then the other.
+      const s = Math.sin(clock * 2.6) * 2.2 + Math.sin(clock * 7.3) * 0.8;
+      return { x: -d.facing * 1.5 + s, legF: 0.45, legB: -0.25, head: -0.06 + 0.06 * Math.sin(t * 13 + d.seed), mouth: d.def.k === 'z' ? 1 : 0, ear: -0.3 };
+    },
+  }),
+  tugwin: d => {
+    if (rope) { rope.a = d; rope.b = null; }
+    say(d, d.def.k === 'z' ? 'MINE!' : 'hmph.', 1.8, d.def.k === 'z' ? 'happy' : '');
+    d.lap = [d.fx < 0.5 ? rnd(0.8, 0.93) : rnd(0.07, 0.2), d.fx];
+    return {
+      dur: 16, run: 1,
+      pose: dd => {
+        if (!dd.move) {
+          const nxt = dd.lap.shift();
+          if (nxt == null) { if (rope) rope.a = null; dd.actT = dd.act.dur; return {}; }
+          walkTo(dd, nxt);
+        }
+        return { ear: 0.2, head: -0.2 };
+      },
+    };
+  },
+  // The loser stumbles forward as the rope goes.
+  tuglose: d => {
+    d.queue.push(d.def.k === 'f' ? 'grumble' : 'playbow');
+    return { dur: 0.9, pose: (dd, u) => ({ x: dd.facing * 4 * Math.sin(u * Math.PI), bow: 0.15 * Math.sin(u * Math.PI), mouth: 1 }) };
+  },
+  steal: () => ({
+    dur: 40,
+    pose: d => {
+      const m = dogs[M], s = stealS;
+      if (!s) { d.actT = d.act.dur; return {}; }
+      if (d.jump) return {};
+      if (!d.took) {
+        if (m.actName !== 'budge') {
+          if (!onScreen(m)) { d.actT = d.act.dur; return {}; }
+          if (d.surf !== m.surf) { jumpTo(d, [m.surf, beside(m, d, 26)]); return {}; }
+          if (Math.abs(d.sx - m.sx) > 30) { walkTo(d, beside(m, d, 26)); d.slow = 0.8; return { ear: 0.2 }; }
+          d.move = null; d.facing = m.sx > d.sx ? 1 : -1;
+          if (!d.nudged) d.nudged = clock;
+          if (clock - d.nudged < 0.8) return { bow: 0.1, head: 0.15, x: d.facing * 2 };
+          interrupt(m, 'budge');
+          return {};
+        }
+        if (d.surf !== s.surf) { jumpTo(d, [s.surf, s.fx]); return {}; }
+        if (Math.abs(d.fx - s.fx) > 0.01) { if (!d.move) walkTo(d, s.fx); return {}; }
+        d.took = clock;
+      }
+      if (clock - d.took > 2.5 && !s.called) {
+        s.called = 1;
+        if (free(dogs[F])) interrupt(dogs[F], 'evict');
+      }
+      return { lie: 1, eyes: 0, head: -0.05 };
+    },
+  }),
+  budge: m => {
+    const z = dogs[Z], away = (z.sx ?? 0) < m.sx ? 1 : -1;
+    say(m, '!?', 1.5);
+    walkTo(m, clamp(m.fx + (away * 56) / width(m.surf), 0.03, 0.97));
+    return {
+      dur: 40,
+      pose: d => {
+        if (z.actName !== 'steal') { d.actT = d.act.dur; return {}; }
+        if (d.move) return { ear: -0.3 };
+        d.facing = z.sx > d.sx ? 1 : -1;
+        return { sit: 1, head: -0.12, ear: -0.4 };
+      },
+    };
+  },
+  evict: f => {
+    say(f, 'GRR!', 1.2);
+    return {
+      dur: 20, run: 1,
+      pose: (d, u, t) => {
+        const z = dogs[Z];
+        if (!stealS || z.actName !== 'steal') { d.actT = d.act.dur; return {}; }
+        if (d.jump || z.jump) return {};
+        if (d.surf !== z.surf) { jumpTo(d, [z.surf, beside(z, d, 34)]); return {}; }
+        if (!d.barked && Math.abs(d.sx - z.sx) > 40) { walkTo(d, beside(z, d, 34)); return { ear: -0.2 }; }
+        d.move = null; d.facing = z.sx > d.sx ? 1 : -1;
+        if (!d.barked) { d.barked = clock; say(d, 'MOVE.', 2, 'angry'); showFx(d, 'anger'); }
+        if (clock - d.barked > 2) {
+          interrupt(z, 'slink');
+          interrupt(dogs[M], 'reclaim');
+          interrupt(d, 'guardM');
+          return {};
+        }
+        const m = Math.floor(t * 6) % 2;
+        return { mouth: m, head: -0.1 * m, ear: -0.4, x: d.facing * m * 1.5 };
+      },
+    };
+  },
+  slink: z => {
+    const away = (dogs[F].sx ?? 0) < z.sx ? 1 : -1;
+    walkTo(z, clamp(z.fx + (away * rnd(120, 170)) / width(z.surf), 0.04, 0.96));
+    z.slow = 0.6;
+    return { dur: 12, untilArrive: 1, bubble: '…', pose: () => ({ ear: -0.6, head: 0.22 }) };
+  },
+  reclaim: m => {
+    const s = stealS;
+    stealS = null;
+    if (!s || s.surf !== m.surf) return { dur: 1 };
+    walkTo(m, s.fx);
+    m.queue.push('sunbathe');
+    return { dur: 12, untilArrive: 1 };
+  },
+  // Back from wandering off: the others come over for a sniff.
+  greeted: d => {
+    const fled = d.fled;
+    d.fled = 0;
+    const sniffers = still ? [] : dogs.filter(o => o !== d && free(o) && onScreen(o) && onScreen(d) && o.surf === d.surf
+      && !SCENE_ACTS.has(o.actName) && !['nap', 'curl', 'fetch', 'proud', 'pileup'].includes(o.actName)
+      && !(fled && o.def.k === 'f') && Math.random() < 0.7);
+    if (!sniffers.length) return { dur: 0.1 };
+    sniffers.forEach((o, i) => { o.sniffAt = d; o.sniffBack = i * 14; interrupt(o, 'buttsniff'); });
+    // Stands still for it until they're done.
+    return {
+      dur: 15,
+      pose: dd => {
+        if (dd.actT > 0.5 && !dogs.some(o => o.sniffAt === dd && o.actName === 'buttsniff')) dd.actT = dd.act.dur;
+        return { ear: 0.1, head: dd.def.k === 'm' ? -0.1 : 0 };
+      },
+    };
+  },
+  buttsniff: () => ({
+    dur: 12, run: 1,
+    pose: (d, u, t) => {
+      d.slow = 0.55; // a trot
+      const tg = d.sniffAt;
+      if (!tg || tg.actName !== 'greeted' || tg.surf !== d.surf || d.jump) { d.actT = d.act.dur; return {}; }
+      if (!d.sniffing) {
+        const rear = tg.sx - tg.facing * (tg.box.cx - 16 * SIZE[tg.def.k]) * K;
+        const s = curS.get(d.surf) || curS.get('ground');
+        if (!d.tried) { d.tried = 1; walkTo(d, clamp((rear - tg.facing * (noseOff(d) + d.sniffBack) - s.l) / Math.max(1, s.r - s.l), 0.01, 0.99)); }
+        if (d.move) return {};
+        d.sniffing = clock;
+      }
+      d.facing = tg.facing;
+      if (clock - d.sniffing > 3) { d.actT = d.act.dur; return {}; }
+      return { head: 0.28 + 0.05 * Math.sin(t * 14), ear: 0.1 };
+    },
+  }),
+});
+
+// ---------- the treat ----------
+// Double-tap anywhere that isn't a button or a chart: a treat drops onto the surface below, and the
+// dogs race for it. Ziggy is fastest, Frank wins if it lands near him, and Minnie only bothers if it's close.
+
+const TREAT_PX = pix(['.bb....bb.', 'bbbbbbbbbb', '.bbbbbbbb.', 'ssssssssss', '.ss....ss.'], { b: '#f3e6c8', s: '#cdb68c' }, K);
+
+function doubleTap(e) {
+  const p = press, now = performance.now();
+  press = null;
+  const ok = now - p.at < 300 && Math.hypot(e.clientX - p.x, e.clientY - p.y) < 10 && !opts.isDragging?.()
+    && !e.target.closest?.('button, a, input, select, textarea, label, .chart');
+  if (!ok) { lastTap = null; return; }
+  if (lastTap && now - lastTap.at < 380 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 36) {
+    lastTap = null;
+    dropTreat(e.clientX, e.clientY);
+    suppressClick = now + 400;
+    getSelection?.()?.removeAllRanges();
+  } else lastTap = { x: e.clientX, y: e.clientY, at: now };
+}
+
+function dropTreat(x, y) {
+  if (treat || still || !k || !dogs.length) return;
+  treat = { el: prop('treat', TREAT_PX), x, y, vy: -140, surf: null, fx: 0, born: clock };
+  for (const d of dogs) {
+    if (!free(d)) continue;
+    if (d.def.k === 'm' && Math.abs((d.sx ?? 0) - x) > 220) continue; // too far; Minnie can't be bothered
+    later({ z: 0.15, f: 0.45, m: 0.7 }[d.def.k], () => { if (free(d) && treat) interrupt(d, 'race'); });
+  }
+}
+
+function treatStep(dt, S) {
+  const t = treat;
+  if (!t) return;
+  if (t.surf && !S.has(t.surf)) t.surf = null; // its tile went away: it falls again
+  if (!t.surf) {
+    const y0 = t.y;
+    t.vy += GRAV * 0.7 * dt; t.y += t.vy * dt;
+    const g = S.get('ground');
+    let hit = t.y >= g.y ? ['ground', g] : null;
+    for (const [key, s] of S) if (!s.ground && t.x >= s.l && t.x <= s.r && y0 <= s.y && t.y >= s.y && (!hit || s.y < hit[1].y)) hit = [key, s];
+    if (hit) { t.surf = hit[0]; t.fx = clamp((t.x - hit[1].l) / Math.max(1, hit[1].r - hit[1].l), 0.02, 0.98); t.vy = 0; }
+  }
+  if (t.surf) { const p = at(S, t.surf, t.fx); t.x = p.x; t.y = p.y; }
+  t.el.style.transform = `translate(${Math.round(t.x - 10)}px, ${Math.round(t.y - 10)}px)`;
+  if (clock - t.born > 40) { t.el.remove(); treat = null; } // nobody wanted it
+}
+
+Object.assign(ACTS, {
+  race: d => ({
+    dur: 25, run: 1, bubble: { z: 'TREAT!!', f: '!' }[d.def.k], mood: 'happy',
+    pose: dd => {
+      const t = treat;
+      if (!t) { dd.actT = dd.act.dur; return {}; }
+      if (!t.surf) { dd.facing = t.x > dd.sx ? 1 : -1; return { head: -0.3, ear: 0.2 }; }
+      if (dd.jump) return { mouth: 1 };
+      if (t.surf === 'ground' && dd.surf !== 'ground' && avoidsGround(dd)) { interrupt(dd, 'refuse'); return {}; }
+      if (dd.surf !== t.surf) { jumpTo(dd, [t.surf, noseTo(dd, t.x, t.surf).fx]); return {}; }
+      const { fx, dir } = noseTo(dd, t.x);
+      if (Math.abs(dd.sx + dir * noseOff(dd) - t.x) > 7) { walkTo(dd, fx); return { mouth: 1, ear: -0.3, head: -0.05 }; }
+      // Got it.
+      t.el.remove(); treat = null;
+      dd.facing = dir;
+      for (const o of dogs) if (o !== dd && o.actName === 'race') interrupt(o, { z: 'beg', f: 'grumble', m: 'ignore' }[o.def.k]);
+      interrupt(dd, 'chomp');
+      return {};
+    },
+  }),
+  chomp: () => ({ dur: 2, bubble: 'nom nom', mood: 'happy', pose: (d, u, t) => ({ bow: 0.08, head: 0.25, mouth: Math.floor(t * 9) % 2, ear: 0.15 }) }),
+  // Ziggy, when someone else got it: sits and looks up at you. Any more?
+  beg: d => { d.facing = d.sx < innerWidth / 2 ? 1 : -1; return { dur: 3, bubble: '?', pose: () => ({ sit: 1, head: -0.3, ear: 0.25 }) }; },
+});
+
 // ---------- taps ----------
 
 function hitDog(x, y) {
@@ -757,6 +1529,7 @@ function onDown(e) {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   clearTimeout(tap?.timer);
   const d = hitDog(e.clientX, e.clientY);
+  press = d ? null : { x: e.clientX, y: e.clientY, at: performance.now(), id: e.pointerId };
   tap = d ? { d, x: e.clientX, y: e.clientY, at: performance.now(), id: e.pointerId, mouse: e.pointerType === 'mouse' } : null;
   if (!d) return;
   e.stopPropagation(); // a press on a dog is for the dog, not the tile it stands on
@@ -781,6 +1554,7 @@ function onCancel(e) {
 }
 function onUp(e) {
   if (grab?.phase === 'held' && e.pointerId === grab.id) { release(); suppressClick = performance.now() + 450; return; }
+  if (press && e.pointerId === press.id) doubleTap(e);
   if (!tap || e.pointerId !== tap.id) return;
   clearTimeout(tap.timer);
   const ok = performance.now() - tap.at < 400 && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 10 && !opts.isDragging?.();
@@ -804,6 +1578,8 @@ export function initDogs(o = {}) {
   document.addEventListener('touchmove', e => { if (grab?.phase === 'held') e.preventDefault(); }, { passive: false });
   document.addEventListener('contextmenu', e => { if (grab || tap) e.preventDefault(); });
   addEventListener('click', e => { if (performance.now() < suppressClick) { e.preventDefault(); e.stopPropagation(); } }, true);
+  // A desktop double-click selects a word as well as dropping a treat; undo that.
+  addEventListener('dblclick', () => { if (performance.now() < suppressClick) getSelection?.()?.removeAllRanges(); }, true);
 }
 
 /** Conditions from conditions.js, or null to send the dogs away. */
@@ -815,9 +1591,14 @@ export function setDogs(next) {
     ball = null;
     grab = null;
     clearTimeout(tap?.timer); tap = null;
+    press = lastTap = null;
+    leaves = []; flies = []; bowl = null; rope = null; treat = null;
+    tugS = stealS = pileSpot = null;
+    lastPhase = null;
     document.documentElement.classList.remove('dog-held');
     return;
   }
+  const born = !dogs.length;
   if (!dogs.length) {
     dogs = DEFS.map((def, i) => {
       const b = box(def.k), cv = document.createElement('canvas');
@@ -841,6 +1622,15 @@ export function setDogs(next) {
     ledgeEl = Object.assign(document.createElement('span'), { className: 'ledge', hidden: true });
     root.prepend(shadowEl, ledgeEl);
   }
-  if (q.has('dogspeed')) window.__pack = dogs; // for debugging
+  const prev = lastPhase;
+  lastPhase = k.phase;
+  maybeStretch(born ? null : prev);
+  if (q.has('dogspeed')) { // for debugging; __step(secs) runs the pack forward even in a background tab
+    window.__pack = dogs;
+    window.__step = secs => {
+      for (let i = 0; i < secs * 30; i++) { skew += 1000 / 30; frame(performance.now()); cancelAnimationFrame(raf); }
+      raf = requestAnimationFrame(frame);
+    };
+  }
   if (!raf) raf = requestAnimationFrame(frame);
 }

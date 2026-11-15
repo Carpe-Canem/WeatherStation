@@ -64,7 +64,8 @@ export function phaseAt(lat, lon, t = Date.now()) {
 
 export const PREVIEWS = [
   ['live', 'Live weather'], ['sunny', 'Sunny'], ['rain', 'Rain'], ['wind', 'Windy'],
-  ['snow', 'Snow'], ['frost', 'Frosty'], ['hot', 'Hot'], ['storm', 'Storm coming'], ['night', 'Night'],
+  ['puddles', 'After rain'], ['fog', 'Fog'], ['snow', 'Snow'], ['frost', 'Frosty'], ['hot', 'Hot'],
+  ['storm', 'Storm coming'], ['dawn', 'Sunrise'], ['night', 'Night'], ['warmnight', 'Warm night'],
 ];
 
 /**
@@ -115,6 +116,10 @@ export function conditions(c, dp, loc, preview = 'live', extra = {}) {
     case 'hot': set({ phase: 'day', temp: 94, rainRate: 0, rainToday: 0, wind: 3, gust: 6, uv: 9, humidity: 45, falling: false }); break;
     case 'storm': set({ temp: 66, rainRate: 0, wind: 12, gust: 22, uv: 1, humidity: 82, falling: true }); break;
     case 'night': set({ phase: 'night', rainRate: 0, uv: 0 }); break;
+    case 'puddles': set({ temp: 56, rainRate: 0, rainToday: 0.6, wind: 4, gust: 7, uv: 1, humidity: 85, falling: false }); break;
+    case 'fog': set({ temp: 48, dewpt: 47.5, humidity: 99, rainRate: 0, rainToday: 0, wind: 1, gust: 2, uv: 0, falling: false }); break;
+    case 'dawn': set({ phase: 'dawn', temp: 52, rainRate: 0, rainToday: 0, wind: 2, gust: 4, uv: 0, humidity: 70, falling: false }); break;
+    case 'warmnight': set({ phase: 'night', temp: 72, rainRate: 0, rainToday: 0, wind: 2, gust: 4, uv: 0, humidity: 70, falling: false }); break;
   }
   k.night = k.phase === 'night';
   k.raining = k.rainRate > 0;
@@ -123,6 +128,7 @@ export function conditions(c, dp, loc, preview = 'live', extra = {}) {
   k.puddles = k.rainToday >= 0.05 && k.temp > 32;
   k.windy = k.gust >= 15 || k.wind >= 12;
   k.cold = k.temp < 40;
+  k.freezing = k.temp <= 32;
   k.frost = k.temp <= 32 && !k.raining;
   // Asphalt in full sun runs far hotter than the air; past roughly 125°F it can burn paws.
   k.hotGround = !k.night && (k.temp >= 85 || (k.temp >= 77 && k.uv >= 6));

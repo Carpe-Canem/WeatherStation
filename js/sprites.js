@@ -160,6 +160,7 @@ function minnie(p) {
   E(46.4, 10.8, 3.6, 3.3, T); E(45, 12.6, 2.2, 2, TD);
   o.save(); pivot(46, 8.4, p.ear || 0); P([[43.8, 9], [45.6, 0.8], [48.6, 8.4]], W); P([[44.8, 8.6], [45.8, 3.2], [47.4, 8.4]], T); o.restore();
   eye(50.2, 10.6, 1, '#1e120c', p); E(57.8, 13.4, 1.35, 1.15, '#0d0d0d');
+  if (p.mouth && !p.snarl) P([[52, 15.4], [57.6, 14.8], [55, 18]], '#1e120c');
   if (p.tongue) P([[53.5, 15.8], [56, 15.8], [55, 19.4]], '#e06878');
   if (p.snarl) { P([[51.5, 15.6], [58, 14], [58, 15.6], [52, 17]], '#1e120c'); o.fillStyle = '#ffffff'; o.fillRect(55.6, 14.8, 1.2, 1.4); }
   o.fillStyle = S; o.fillRect(52, 16.4, 1, 1.6); o.fillRect(54.2, 16, 1, 1.6); o.fillRect(56, 15.4, 1, 1.3);
@@ -167,12 +168,14 @@ function minnie(p) {
   o.restore();
 }
 
-/** Where Ziggy's mouth is in his drawing for a pose (unscaled, before PAD), following the same head
- *  offset and tilt as ziggy() and the body bob, so a carried ball sits in his mouth. */
-export function mouthPoint(p) {
-  const a = p.head || 0, dx = 63.5 - 50, dy = 15 - 18;
-  const x = 50 + dx * Math.cos(a) - dy * Math.sin(a), y = 18 + dx * Math.sin(a) + dy * Math.cos(a);
-  return [x + 0.5, y - 2.5 + (p.bob || 0) + (p.y || 0)];
+// Each dog's head: the pivot it turns about, its mouth, and the extra offset its head is drawn with.
+const HEAD = { z: [50, 18, 63.5, 15, 0.5, -2.5], f: [44, 22, 58.5, 18.5, 0, 0], m: [42, 22, 55, 16.5, 0, 0] };
+/** Where a dog's mouth is in its drawing for a pose (unscaled, before PAD), following the same head
+ *  offset and tilt as its drawing and the body bob, so a carried ball or rope sits in its mouth. */
+export function mouthPoint(p, k = 'z') {
+  const [px, py, mx, my, ox, oy] = HEAD[k], a = p.head || 0, dx = mx - px, dy = my - py;
+  const x = px + dx * Math.cos(a) - dy * Math.sin(a), y = py + dx * Math.sin(a) + dy * Math.cos(a);
+  return [x + ox, y + oy + (p.bob || 0) + (p.y || 0)];
 }
 
 const DRAW = { z: ziggy, f: frank, m: minnie };

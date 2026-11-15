@@ -2,7 +2,9 @@
 // and whatever the weather is doing (rain, snow, wind-blown leaves, fog, frost, puddles).
 // Drawn at a low resolution and scaled up with crisp pixels. Frame rate drops when nothing moves fast.
 
-const W = 120;
+export const W = 120;
+/** Puddles on the lawn after rain: [x, width] in sky pixels (the dogs stomp in them). */
+export const PUDDLES = [[18, 9], [62, 13], [96, 8]];
 const rand = seed => () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
 
 const SKY = {
@@ -92,7 +94,9 @@ function draw(t) {
   }
 
   // Hills, a tree, and the lawn the dogs walk on.
-  const [h1, h2, grass] = HILLS[ph].map(c => (k.frost ? mix(c, '#e8f1f6', 0.55) : c));
+  // Frost whitens the lawn a little; falling snow covers it.
+  const cover = k.snowing ? 0.78 : k.frost ? 0.55 : 0;
+  const [h1, h2, grass] = HILLS[ph].map(c => (cover ? mix(c, k.snowing ? '#f2f6fb' : '#e8f1f6', cover) : c));
   for (let x = 0; x < W; x++) {
     const a = Math.round(10 + 5 * Math.sin(x / 13 + 1) + 3 * Math.sin(x / 5));
     const b = Math.round(5 + 4 * Math.sin(x / 9 + 3) + 2 * Math.sin(x / 4));
@@ -102,7 +106,7 @@ function draw(t) {
   const sway = k.windy ? Math.round(Math.sin(t * 6)) : 0;
   const tx = 14, ty = horizon + 12;
   ctx.fillStyle = night ? '#2a1d14' : '#6b4a2b'; ctx.fillRect(tx + 3, ty - 4, 3, 16);
-  ctx.fillStyle = k.frost ? '#cfe0d9' : night ? '#173a2a' : '#3f8a3c';
+  ctx.fillStyle = k.frost || k.snowing ? '#cfe0d9' : night ? '#173a2a' : '#3f8a3c';
   ctx.fillRect(tx - 3 + sway, ty - 16, 15, 10); ctx.fillRect(tx - 1 + sway, ty - 20, 11, 4); ctx.fillRect(tx - 4 + sway, ty - 10, 17, 5);
   ctx.fillStyle = grass; ctx.fillRect(0, ground, W, H - ground);
   ctx.fillStyle = mix(grass, '#ffffff', 0.18);
@@ -110,7 +114,7 @@ function draw(t) {
 
   if (k.puddles) {
     ctx.fillStyle = night ? '#2c4a7a' : '#7fb3e0';
-    [[18, 9], [62, 13], [96, 8]].forEach(([x, w]) => { ctx.fillRect(x, ground - 1, w, 1); ctx.fillRect(x + 1, ground - 2, w - 2, 1); });
+    PUDDLES.forEach(([x, w]) => { ctx.fillRect(x, ground - 1, w, 1); ctx.fillRect(x + 1, ground - 2, w - 2, 1); });
   }
   if (k.fog) {
     ctx.fillStyle = night ? 'rgba(160,170,200,0.18)' : 'rgba(255,255,255,0.32)';
