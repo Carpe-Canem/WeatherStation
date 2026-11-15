@@ -1,7 +1,9 @@
 // What changed in each version, newest first. The version number is the one on
 // CACHE in sw.js: whenever that goes up for a deploy, add an entry here too.
+// Settings shows the newest entry's number as the running version.
 // (There was no version 4.)
 export const CHANGES = [
+  [23, '2026-11-15', 'The version in Settings matches the newest change listed, even right after an update.'],
   [22, '2026-11-15', 'Easter, July 4, National Dog Day and Halloween outfits, with their own sayings and scenes: a bunny to chase, fireworks, a nap pile and a ghost.'],
   [21, '2026-11-15', 'Settings shows which version is loaded. Tap it to see what changed in each one.'],
   [20, '2026-11-15', 'Holiday sayings and scenes for Thanksgiving, Christmas, New Year\'s, Valentine\'s and St. Patrick\'s.'],

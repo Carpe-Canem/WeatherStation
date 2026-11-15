@@ -491,24 +491,11 @@ function renderSettings() {
     <h2>Put it on your iPhone</h2>
     <div class="card form"><p class="help">Open this page in Safari, tap Share, then Add to Home Screen. It opens full screen like any other app.</p></div>
     <details class="version">
-      <summary id="appVersion">Version</summary>
+      <summary>Version ${CHANGES[0][0]}</summary>
       <ol class="card changelog">${CHANGES.map(([v, date, text]) => `
         <li><b>Version ${v}</b> <span>${new Date(`${date}T12:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span><p>${esc(text)}</p></li>`).join('')}
       </ol>
     </details>`;
-  showVersion();
-}
-
-// The version is the number on the service worker's cache (CACHE in sw.js), which
-// goes up with every deploy, so it shows which release this device has installed.
-async function showVersion() {
-  let v = null;
-  try {
-    const nums = (await caches.keys()).map(k => +(/^backyard-shell-v(\d+)$/.exec(k)?.[1])).filter(n => n > 0);
-    if (nums.length) v = Math.max(...nums);
-  } catch {}
-  const el = $('#appVersion');
-  if (el) el.textContent = v ? `Version ${v}` : 'Version not installed yet';
 }
 
 // Saves a new order. Ids not currently shown (e.g. UV before the sensor reports) keep their old rank.
