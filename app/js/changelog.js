@@ -3,6 +3,7 @@
 // Settings shows the newest entry's number as the running version.
 // (There was no version 4.)
 export const CHANGES = [
+  [24, '2026-11-15', 'Now fits on one iPhone screen with the dogs\' lawn in view: a one-line header, the day\'s details beside the temperature, UV moved up there, and a tighter forecast.'],
   [23, '2026-11-15', 'The version in Settings matches the newest change listed, even right after an update.'],
   [22, '2026-11-15', 'Easter, July 4, National Dog Day and Halloween outfits, with their own sayings and scenes: a bunny to chase, fireworks, a nap pile and a ghost.'],
   [21, '2026-11-15', 'Settings shows which version is loaded. Tap it to see what changed in each one.'],
