@@ -6,15 +6,20 @@
 // and the big temperature. Surfaces are looked up afresh every frame, because the views re-render.
 // Debug: ?dogspeed=8 speeds everything up; ?dogact=zoomies forces an activity for every dog that has it;
 // ?dogact=ball throws a tennis ball every few seconds; ?dogscene=howl|pile|tug|steal|rumble|stretch|treat
-// starts that scene (see "scenes" below) a couple of seconds in, then again every 25 seconds or so.
+// starts that scene (see "scenes" below) a couple of seconds in, then again every 25 seconds or so;
+// ?holiday=thanksgiving dresses them for that holiday whatever the date (ids in holidays.js), ?holiday=none
+// leaves them undressed.
 
-import { render, box, NOSE, SIZE, mouthPoint } from './sprites.js';
+import { render, box, NOSE, SIZE, PAD, mouthPoint } from './sprites.js';
+import { holidayOn } from './holidays.js';
+import { OUTFITS } from './outfits.js';
 import { PUDDLES, W as SKY_W } from './sky.js';
 
 const q = new URLSearchParams(location.search);
 const SPEED = Math.max(0.1, +q.get('dogspeed') || 1);
 const FORCE = q.get('dogact');
 const FORCE_SCENE = q.get('dogscene');
+const FORCE_HOLIDAY = q.get('holiday')?.toLowerCase();
 const K = 2; // screen pixels per sprite pixel
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -386,7 +391,7 @@ function moveBall(dt, S) {
     // Centred on his mouth (b.y is the ball's bottom; it is 16px tall).
     const [mx, my] = mouthPoint(z.pose || {});
     b.x = z.sx + z.facing * ((mx + (z.pose?.x || 0)) * SIZE.z - z.box.cx) * K;
-    b.y = z.sy - (z.box.footY - (my + 8) * SIZE.z) * K + 8;
+    b.y = z.sy - (z.box.footY - (my + PAD.z) * SIZE.z) * K + 8;
   } else {
     b.age += dt;
     b.vh -= 900 * dt;
@@ -509,13 +514,22 @@ function place(d, S) {
     if (u > 0.15 && u < 0.6) y -= Math.sin(((u - 0.15) / 0.45) * Math.PI) * 5;
   }
   d.cv.style.transform = `translate(${Math.round(x - b.cx * K)}px, ${Math.round(y - b.footY * K)}px) scaleX(${d.facing})${sc}`;
-  d.bubble.style.transform = `translate(${Math.round(x - 24)}px, ${Math.round(y - b.footY * K * 0.8)}px) translateY(-100%)`;
+  d.bubble.style.transform = `translate(${Math.round(x - 24)}px, ${Math.round(y - (b.footY - b.lift) * K * 0.8)}px) translateY(-100%)`;
   d.sx = x; d.sy = y;
   if (!d.fx_.hidden) {
     const [nx, ny] = NOSE[d.def.k], sc = SIZE[d.def.k];
-    const hx = x + d.facing * (nx * sc - b.cx) * K, hy = y - (b.footY - (ny + 8 + (d.pose?.y || 0)) * sc) * K;
+    const hx = x + d.facing * (nx * sc - b.cx) * K, hy = y - (b.footY - (ny + PAD[d.def.k] + (d.pose?.y || 0)) * sc) * K;
     d.fx_.style.transform = `translate(${Math.round(hx)}px, ${Math.round(hy)}px) scaleX(${d.facing})`;
   }
+}
+
+/** Today's holiday (holidays.js), or the one forced by ?holiday=. Looked up again whenever the date
+ *  changes, since the app stays open for days. */
+function holiday() {
+  if (FORCE_HOLIDAY) return FORCE_HOLIDAY === 'none' ? null : FORCE_HOLIDAY;
+  const now = new Date(), day = now.toDateString();
+  if (day !== holiday.day) { holiday.day = day; holiday.id = holidayOn(now); }
+  return holiday.id;
 }
 
 let skew = 0; // debug: time added by __step
@@ -536,11 +550,12 @@ function frame(now) {
   if (!ball && ballReady()) throwBall();
   if (ball) moveBall(dt, S);
   fogBumps();
+  const outfit = OUTFITS[holiday()];
   for (const d of dogs) {
     if (d.grabbed) grabStep(d, rdt, t, S);
     else step(d, dt, still ? 0 : t * SPEED, S);
     if (d.squash > 0) d.squash = Math.max(0, d.squash - rdt);
-    if (draw || d.grabbed) render(d.def.k, d.pose, d.ctx);
+    if (draw || d.grabbed) render(d.def.k, d.pose, d.ctx, outfit?.[d.def.k]?.parts);
     if (d.grabbed) placeGrab(d, S); else place(d, S);
     // In fog they drift in and out of sight, speech bubbles and all.
     const op = k.fog && !still && !d.grabbed ? (0.3 + 0.35 * (1 + Math.sin(clock * 0.35 + d.seed * 2.1))).toFixed(2) : '';
@@ -562,7 +577,7 @@ const TILT = { z: 0.35, f: 0.22, m: 0.5 };
 let grab = null, shadowEl, ledgeEl;
 
 /** The scruff, in the dog's canvas, in screen pixels. */
-const scruff = d => { const [x, y] = SCRUFF[d.def.k], s = SIZE[d.def.k]; return [x * s * K, (y + 8) * s * K]; };
+const scruff = d => { const [x, y] = SCRUFF[d.def.k], s = SIZE[d.def.k]; return [x * s * K, (y + PAD[d.def.k]) * s * K]; };
 /** The feet, relative to the scruff, for a dog held level. */
 const feetRel = d => { const [gx, gy] = scruff(d); return [d.facing * (d.box.cx * K - gx), d.box.footY * K - gy]; };
 
@@ -724,7 +739,7 @@ function placeGrab(d, S) {
   d.bubble.style.transform = `translate(${Math.round(x - 24)}px, ${Math.round(y - 30)}px) translateY(-100%)`;
   if (!d.fx_.hidden) {
     const [nx, ny] = NOSE[d.def.k], sc = SIZE[d.def.k], c = Math.cos(ang), s = Math.sin(ang);
-    const vx = d.facing * (nx * sc * K - gx), vy = (ny + 8) * sc * K - gy;
+    const vx = d.facing * (nx * sc * K - gx), vy = (ny + PAD[d.def.k]) * sc * K - gy;
     d.fx_.style.transform = `translate(${Math.round(x + vx * c - vy * s)}px, ${Math.round(y + vx * s + vy * c)}px) scaleX(${d.facing})`;
   }
   // The shadow on the surface below, sharper and darker the nearer it gets, and that surface's edge aglow.
@@ -786,12 +801,12 @@ function prop(cls, html = '') {
 /** A point on top of a dog's head, in screen pixels. */
 function headPt(d) {
   const [nx, ny] = NOSE[d.def.k], sc = SIZE[d.def.k], b = d.box;
-  return [d.sx + d.facing * ((nx - 12) * sc - b.cx) * K, d.sy - (b.footY - (ny + 3 + (d.pose?.y || 0)) * sc) * K];
+  return [d.sx + d.facing * ((nx - 12) * sc - b.cx) * K, d.sy - (b.footY - (ny - 5 + PAD[d.def.k] + (d.pose?.y || 0)) * sc) * K];
 }
 /** A dog's mouth, in screen pixels. */
 function mouthXY(d) {
   const [mx, my] = mouthPoint(d.pose || {}, d.def.k), sc = SIZE[d.def.k];
-  return [d.sx + d.facing * (mx * sc - d.box.cx) * K, d.sy - (d.box.footY - (my + 8) * sc) * K];
+  return [d.sx + d.facing * (mx * sc - d.box.cx) * K, d.sy - (d.box.footY - (my + PAD[d.def.k]) * sc) * K];
 }
 /** fx on a surface that puts a dog's nose at screen x, approaching from whichever side fits. */
 function noseTo(d, x, key = d.surf) {
