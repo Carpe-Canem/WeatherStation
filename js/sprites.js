@@ -224,6 +224,25 @@ function stamp(part, d, mask, w, h, dy) {
   }
 }
 
+/** The highest canvas row an outfit reaches, its outline included, while the dog stands or sits; null for
+ *  none. Speech bubbles go up to clear it. */
+const TOPS = new WeakMap();
+export function outfitTop(k, parts) {
+  if (!parts) return null;
+  let t = TOPS.get(parts);
+  if (t === undefined) {
+    const { w, h } = box(k), c = Object.assign(document.createElement('canvas'), { width: w, height: h }).getContext('2d', { willReadFrequently: true });
+    const draw = (p, pp) => { c.clearRect(0, 0, w, h); render(k, p, c, pp); return c.getImageData(0, 0, w, h).data; };
+    t = h;
+    for (const p of [{}, { sit: 1 }]) {
+      const a = draw(p), b = draw(p, parts), i = a.findIndex((v, j) => v !== b[j]);
+      if (i >= 0) t = Math.min(t, Math.floor(i / 4 / w));
+    }
+    TOPS.set(parts, t);
+  }
+  return t;
+}
+
 /** Draws a dog in a pose onto ctx (a canvas sized by box()), wearing parts (an outfit's parts, if any). */
 export function render(k, pose, out, parts) {
   const { w, h, lift } = box(k), sc = SIZE[k];
