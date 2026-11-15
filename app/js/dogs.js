@@ -298,7 +298,7 @@ function weights(d) {
   if (k.ice && !k.night) z ? add({ iceslide: 3 }) : f ? add({ iceslide: 0.7 }) : add({ iceslide: 0.9 });
   if (k.fog) { add({ sniff: 6 }); w.hop *= 0.3; }
   // Spring: dandelion puffs to pounce on; a rainbow for Minnie to gaze at.
-  if (z && !k.raining && !k.night && dandelions().some(p => p.puff)) add({ puffpounce: 2 });
+  if (z && !k.raining && !k.night && dandelions().some(p => p.puff)) add({ puffpounce: 1 });
   if (m && k.rainbow) add({ gaze: 3 });
   if (k.hot) {
     z ? add({ sploot: 5, drink: bowl ? 2.5 : 0 }) : f ? add({ lie: 3, sploot: 2 }) : add({ shade: 4, drink: bowl ? 1.5 : 0 });
@@ -1413,7 +1413,7 @@ function leafBitsStep(dt) {
 }
 
 // ---------- spring ----------
-// A dandelion puff (sky.js) bursts into fluff when a dog on the lawn runs through it, and Ziggy pounces
+// A dandelion puff (sky.js) bursts into fluff when a dog runs (not walks) through it, and Ziggy pounces
 // on them on purpose; Minnie sneezes. When robins drop onto the lawn, Ziggy goes after them (up they go,
 // and some land again further off), Minnie sits and watches them, and Frank turns his back on the lot.
 
@@ -1424,7 +1424,7 @@ function springStep(dt) {
   const px = skyPx();
   dandelions().forEach((p, i) => {
     if (!p.puff) return;
-    const d = dogs.find(o => free(o) && o.surf === 'ground' && !o.jump && o.walking && Math.abs(o.sx - p.x * px) < 8);
+    const d = dogs.find(o => free(o) && o.surf === 'ground' && !o.jump && o.walking && o.act?.run && Math.abs(o.sx - p.x * px) < 8);
     if (d) popPuff(i, d);
   });
   seedsStep(dt);

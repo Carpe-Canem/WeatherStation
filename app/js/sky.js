@@ -179,7 +179,7 @@ const FLOWER_COLS = ['#f4f0e8', '#f2d23c', '#9a6ad8', '#f08cb0', '#6f9cf0'];
 // flower from day 92, closes up at 106, is a puff from 110 and is gone by 155 (plus its own lag).
 export const DANDELIONS = [[8, -10], [33, 4], [41, -14], [50, 0], [57, -7], [86, 8], [91, -12], [108, 2], [114, -4]];
 const blownAt = DANDELIONS.map(() => -Infinity);
-const PUFF_REGROW = 4 * 60e3; // ms before a blown dandelion has a new puff, at normal speed
+const PUFF_REGROW = 60e3; // ms before a blown dandelion has a new puff, at normal speed
 const dandelionStage = d => (d < 92 || d >= 158 ? null : d < 106 ? 'flower' : d < 110 ? 'bud' : d < 155 ? 'puff' : 'stem');
 /** Robins come to the lawn from mid-March to early July. */
 const robinSeason = day => ramp(day, 62, 76) * (1 - ramp(day, 165, 190));
