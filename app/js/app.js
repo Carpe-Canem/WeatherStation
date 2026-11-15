@@ -24,6 +24,9 @@ const settings = {
   units: { temp: 'F', wind: 'mph', pressure: 'inHg', rain: 'in', ...(saved.units || {}) },
 };
 settings.preview = 'live'; // the weather preview is only for this visit; never saved
+// Debug: ?preview=night (or any id in PREVIEWS) starts this visit with that preview.
+const askedPreview = new URLSearchParams(location.search).get('preview');
+if (PREVIEWS.some(([id]) => id === askedPreview)) settings.preview = askedPreview;
 
 // A share link (?station=ID&key=KEY) connects this device to that station without typing anything.
 // It is applied once per link, so choosing demo data later sticks. The parameters stay in the address so

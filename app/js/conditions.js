@@ -79,6 +79,7 @@ export function conditions(c, dp, loc, preview = 'live', extra = {}) {
     phase: phaseAt(loc?.lat, loc?.lon), temp: c?.temp ?? 60, rainRate: c?.rainRate ?? 0, rainToday: c?.rain ?? 0,
     wind: c?.wind ?? 0, gust: c?.gust ?? c?.wind ?? 0, uv: c?.uv ?? 0, humidity: c?.humidity ?? 50,
     dewpt: c?.dewpt ?? null, falling: dp != null && dp <= -0.06,
+    lat: loc?.lat ?? null, // for the seasons: south of the equator they run half a year apart
   };
   // Cloud cover, 0 (clear) to 1 (overcast), from the best source to hand; null when unknown.
   let cloud = null, fogObs = false;

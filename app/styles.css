@@ -418,6 +418,9 @@ main { position: relative; z-index: 1; }
 @keyframes burst { 0% { scale: 0.2; opacity: 1; } 55% { opacity: 1; } 100% { scale: 1.6; opacity: 0; } }
 #pack .confetti { width: 4px; height: 3px; }
 #pack .confetti.down { animation: print-fade 3s linear forwards; }
+/* Leaves thrown up when a dog dives into the fall leaf pile. */
+#pack .leafbit { position: absolute; left: 0; top: 0; }
+#pack .leafbit.down { animation: print-fade 4s linear forwards; }
 #pack .rainbow { opacity: 0; animation: rainbow-in 1.5s steps(6) forwards; }
 #pack .rainbow.out { animation: rainbow-out 1.5s steps(6) forwards; }
 @keyframes rainbow-in { from { opacity: 0; } to { opacity: 0.8; } }

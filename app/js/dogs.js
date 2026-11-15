@@ -8,14 +8,14 @@
 // ?dogact=ball throws a tennis ball every few seconds; ?dogscene=howl|pile|tug|steal|rumble|stretch|treat
 // starts that scene (see "scenes" below) a couple of seconds in, then again every 25 seconds or so
 // (holiday scenes too: drumstick|coma|gift|sleigh|fireworks|confetti|rose|rainbow|egg|bunny|hotdog|
-// fireworks4|bone|dogpile|ghost|pumpkin);
+// fireworks4|bone|dogpile|ghost|pumpkin; and the fall leaf pile: leafpile);
 // ?holiday=thanksgiving dresses them for that holiday whatever the date (ids in holidays.js), ?holiday=none
 // leaves them undressed; ?dogact=quip has them say their holiday lines.
 
 import { render, outfitTop, box, NOSE, SIZE, PAD, mouthPoint } from './sprites.js';
 import { holidayOn } from './holidays.js';
 import { OUTFITS } from './outfits.js';
-import { PUDDLES, W as SKY_W } from './sky.js';
+import { PUDDLES, PILE, W as SKY_W, pileSize, scatterPile, pileColours } from './sky.js';
 
 const q = new URLSearchParams(location.search);
 const SPEED = Math.max(0.1, +q.get('dogspeed') || 1);
@@ -847,6 +847,7 @@ function propsStep(dt, S) {
   treatStep(dt, S);
   ropeStep();
   holidayStep(dt);
+  leafBitsStep(dt);
 }
 
 // Leaves: the same little orange and yellow leaves the sky blows past, but in front, where the dogs are.
@@ -1182,6 +1183,7 @@ const SCENE_ACTS = new Set([
   'pester', 'flinch', 'rescue', 'flee', 'guardM', 'howl', 'pileup', 'tugwait', 'tugbring', 'tug', 'tugwin', 'tuglose',
   'steal', 'budge', 'evict', 'slink', 'reclaim', 'cower', 'skybark', 'race', 'chomp', 'beg', 'greeted', 'buttsniff', 'stretch',
   'unwrap', 'santa', 'onewoof', 'cheer', 'confcatch', 'woo', 'rebuff', 'goldig', 'claim', 'bunnychase', 'ghostbark',
+  'leafdive',
 ]);
 const inScene = () => dogs.some(d => SCENE_ACTS.has(d.actName) || d.queue.some(a => SCENE_ACTS.has(a)));
 let nextScene = FORCE_SCENE ? 2 : rnd(45, 100), tugS = null, stealS = null, pileSpot = null;
@@ -1194,6 +1196,8 @@ const SCENES = {
   rumble: { when: () => k.falling, w: 2, go: startRumble },
   stretch: { when: () => false, go: startStretch },
   treat: { when: () => false, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3) },
+  // Fall: the leaf pile on the lawn (sky.js) is big enough to dive into.
+  leafpile: { when: () => pileSize() >= 0.4 && !k.night && !k.raining && !k.snowing && !k.fog, w: 1.5, go: startLeafPile },
   // Holiday scenes, only in their holiday's week (see "holidays" below).
   drumstick: { when: () => hol('thanksgiving') && !k.night && !k.raining, w: 1.5, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3, 'drumstick') },
   coma: { when: () => hol('thanksgiving') && !k.night && !k.hot, w: 0.8, go: () => startPile('coma') },
@@ -1260,6 +1264,56 @@ function startPile(mode) {
   dogs.forEach((d, i) => later(i * 0.6, () => free(d) && interrupt(d, 'pileup')));
 }
 
+// Fall leaf pile: one of them dives in and scatters it, in character. Ziggy most often, gleeful; Frank,
+// grumpily, just the once; Minnie, a dainty little hop. The pile builds back up over a few minutes.
+const LEAF_LINES = {
+  z: { pre: 'LEAVES!!', post: 'CRUNCH!!', mood: 'happy' },
+  f: { pre: 'fine. once.', post: 'hmph. itchy.' },
+  m: { pre: 'just a hop.', post: 'how crunchy.' },
+};
+const pileX = () => ((PILE[0] + PILE[1] / 2) * innerWidth) / SKY_W;
+function startLeafPile() {
+  const ok = [[Z, 3], [F, 1], [M, 1]].filter(([i]) => free(dogs[i]) && onScreen(dogs[i]) && !avoidsGround(dogs[i])
+    && !['hide', 'wanderoff', 'comeback'].includes(dogs[i].actName));
+  if (ok.length) interrupt(dogs[pick(ok)], 'leafdive');
+}
+// The others have something to say about it.
+function leafReactions(d) {
+  const [z, f, m] = dogs, idle = o => free(o) && onScreen(o) && !SCENE_ACTS.has(o.actName);
+  if (d === z) {
+    later(1.2, () => { if (idle(f)) { interrupt(f, 'ignore'); say(f, 'my pile.', 1.8); } });
+    later(2.2, () => { if (idle(m)) { interrupt(m, 'ignore'); say(m, 'how messy.', 1.8); } });
+  } else {
+    later(0.9, () => { if (idle(z)) { interrupt(z, 'happybark'); say(z, d === f ? 'AGAIN!!' : 'MY TURN!!', 1.8, 'happy'); } });
+    if (d === m) later(1.8, () => { if (idle(f)) say(f, 'hmph.', 1.4); });
+  }
+}
+let leafBits = [];
+function leafBurst(x) {
+  const px = innerWidth / SKY_W, gy = groundY(), cols = pileColours();
+  for (let i = 0; i < 26; i++) {
+    const e = prop('leafbit');
+    e.style.width = `${Math.round(px * (Math.random() < 0.5 ? 2 : 1))}px`; e.style.height = `${Math.max(2, Math.round(px))}px`;
+    e.style.background = cols[Math.floor(Math.random() * cols.length)];
+    leafBits.push({ el: e, x: x + rnd(-1, 1) * PILE[1] * px * 0.4, y: gy - rnd(2, 12), vx: rnd(-110, 110), vy: -rnd(140, 300), ph: rnd(0, 9), land: gy - rnd(0, 5) });
+  }
+}
+function leafBitsStep(dt) {
+  for (const b of leafBits) {
+    if (b.down) continue;
+    b.vy = Math.min(70, b.vy + 520 * dt); // tossed up, then flutters down
+    b.vx *= 1 - 1.5 * dt;
+    b.x += (b.vx + (b.vy > 0 ? Math.sin(clock * 5 + b.ph) * 30 : 0)) * dt; b.y += b.vy * dt;
+    if (b.vy > 0 && b.y >= b.land) {
+      b.y = b.land; b.down = true;
+      b.el.classList.add('down');
+      b.el.addEventListener('animationend', () => { b.el.remove(); b.gone = true; });
+    }
+    b.el.style.transform = `translate(${Math.round(b.x)}px, ${Math.round(b.y)}px) rotate(${b.down ? 0 : Math.round(Math.sin(clock * 7 + b.ph)) * 30}deg)`;
+  }
+  leafBits = leafBits.filter(b => !b.gone);
+}
+
 // Tug-of-war: Ziggy brings the rope to Frank; they pull until one wins and takes a lap with it.
 function startTug() {
   const [z, f] = dogs;
@@ -1287,6 +1341,46 @@ function startSteal() {
 }
 
 Object.assign(ACTS, {
+  // A run-up, a dive into the pile, leaves everywhere. Then Ziggy bounces about in them, Frank sits
+  // there put out and shakes them off, and Minnie shakes them off straight away and walks off.
+  leafdive: d => needGround(d, 'leafdive') || {
+    dur: 24, run: d.def.k === 'z' ? 1 : 0,
+    pose: (dd, u, t) => {
+      const who = dd.def.k, L = LEAF_LINES[who], cx = pileX();
+      if (!dd.bowed) {
+        const side = (dd.sx ?? 0) < cx ? -1 : 1, runup = who === 'z' ? 72 : who === 'f' ? 42 : 32;
+        const fx = clamp((cx + side * runup) / innerWidth, 0.03, 0.97);
+        if (Math.abs(fx - dd.fx) > 0.006) { walkTo(dd, fx); return who === 'z' ? { mouth: 1, ear: -0.3 } : { ear: -0.1 }; }
+        dd.move = null; dd.facing = cx > dd.sx ? 1 : -1; dd.bowed = clock;
+        say(dd, L.pre, 1.6, L.mood);
+      }
+      const s = clock - dd.bowed;
+      if (!dd.hopped) {
+        if (s < (who === 'z' ? 0.9 : 1.7)) return who === 'z' ? { bow: 0.22, mouth: 1, ear: -0.25 } : who === 'f' ? { sit: 1, head: 0.1, ear: -0.2 } : { head: -0.25, eyes: 0 };
+        dd.hopped = clock;
+        jumpTo(dd, ['ground', clamp(cx / innerWidth, 0.03, 0.97)], who === 'z' ? 34 : who === 'f' ? 12 : 10, who === 'z' ? 0.6 : 0.5);
+        return {};
+      }
+      if (dd.jump) return who === 'z' ? { mouth: 1, ear: -0.4 } : {};
+      if (!dd.took) {
+        dd.took = clock;
+        scatterPile(); leafBurst(cx);
+        say(dd, L.post, 2.4, L.mood);
+        leafReactions(dd);
+      }
+      const a = clock - dd.took;
+      if (who === 'z') {
+        if (a > 4) { dd.queue = ['shake', 'zoomies']; dd.actT = dd.act.dur; return {}; }
+        return { y: -Math.abs(Math.sin(t * 7)) * 6, mouth: 1, head: -0.3, ear: 0.2 };
+      }
+      if (who === 'f') {
+        if (a > 3) { dd.queue = ['shake', 'grumble']; dd.actT = dd.act.dur; return {}; }
+        return { sit: 1, head: 0.12, ear: -0.35 };
+      }
+      if (a > 1.2) { dd.queue = ['walkoff']; dd.actT = dd.act.dur; return {}; }
+      return { shake: 1 };
+    },
+  },
   pileup: d => {
     const p = pileSpot;
     if (!p) return null;
@@ -1978,6 +2072,7 @@ export function setDogs(next) {
     press = lastTap = null;
     leaves = []; flies = []; bowl = null; rope = null; treat = null;
     tugS = stealS = pileSpot = null;
+    leafBits = [];
     giftBox = sleigh = rainbow = null; confetti = []; confettiUntil = 0;
     lastPhase = null;
     document.documentElement.classList.remove('dog-held');
