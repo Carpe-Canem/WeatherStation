@@ -10,11 +10,18 @@
 // In spring the blossom comes off the tree in drifting petals, wildflowers come up in the lawn, then
 // dandelions, which go to seed (the dogs blow the puffs apart: see dogs.js), and robins drop in to hop
 // about the lawn. After rain, while the sun's out, a rainbow stands over the hills (k.rainbow).
+// In summer butterflies flutter over the lawn (Ziggy snaps at them: see dogs.js), sunflowers come up along
+// it in mid to late summer, and dragonflies dart over the puddles after rain. In a dry spell the lawn
+// browns in patches (k.drought), heat shimmers over the hills on hot afternoons, and when a storm is
+// building (the pressure falling) thunderheads tower on the horizon.
 // Drawn at a low resolution and scaled up with crisp pixels. Frame rate drops when nothing moves fast.
 //
 // Debug: ?season= and ?seasonat= (seasons.js); ?geese brings the geese over every 40 s or so, and
 // ?robins the robins (in spring); ?snowlying=0..1, ?ice and ?rainbow (conditions.js), or the Settings
 // previews "After snow", "Icy puddles" and "Rainbow". ?season=spring&seasonat=0.6 has the most puffs.
+// Summer: ?butterflies brings them every few seconds; ?heatshimmer and ?thunderheads force those on;
+// ?drought=0..1 (conditions.js) or the Settings preview "Dry spell" browns the lawn; the previews "Hot",
+// "Storm coming" and "After rain" show the shimmer, the thunderheads and the dragonflies.
 
 import { seasonNow, yearly, ramp, mix } from './seasons.js';
 
@@ -140,6 +147,8 @@ const smooth = (x, y) => {
 };
 const meltAt = (x, y) => 0.6 * smooth(x / 7, y / 3.5) + 0.3 * smooth(x / 3 + 50, y / 2 + 50) + 0.1 * hash(x, y + 5003);
 const SNOW = '#f2f6fb';
+/** Where the lawn browns first in a dry spell (low) and last (high): speckled blobs, like dried-out turf. */
+const dryAt = (x, y) => 0.6 * smooth(x / 6 + 211, y / 2.5 + 7) + 0.4 * hash(x + 7001, y);
 // The house on the far hill, sitting on its flat top at columns 72-78. Roof 'r' takes the snow; 'y' is
 // the window, lit at night.
 const HOUSE = ['.....c.', '..rrrc.', '.rrrrr.', 'rrrrrrr', '.wwwww.', '.wywdw.', '.wwwdw.'];
@@ -194,8 +203,35 @@ const ROBIN_COLS = { b: '#6e5a4a', k: '#2b2626', o: '#e06a2c', y: '#f0c040', l: 
 // A rainbow's bands, outside in.
 const BOW = ['#e8463a', '#f39a2e', '#f5d63c', '#5cbf4a', '#3f86e0', '#7a4fc0'];
 
+// ---------- summer ----------
+// (Laid out with hash(), and anything at random uses Math.random(): nothing here draws from r().)
+/** Butterflies are about from mid-May to mid-September. */
+const fluttering = day => ramp(day, 130, 150) * (1 - ramp(day, 250, 270));
+/** Dragonflies, over the puddles: June to early September. */
+const darting = day => ramp(day, 145, 165) * (1 - ramp(day, 240, 260));
+/** Thunderstorm season: mid-May into early October. */
+const stormy = day => ramp(day, 120, 150) * (1 - ramp(day, 255, 285));
+/** When the lawn can brown in a dry spell: May to mid-October (the rest of the year it's dormant anyway). */
+const growing = day => ramp(day, 110, 140) * (1 - ramp(day, 270, 295));
+const BFLY_COLS = ['#f4f2e6', '#f2d24a', '#e8862a', '#8fb4f4'];
+const BFLY = { open: ['cc.cc', 'ccbcc', '.c.c.'], shut: ['..c..', '..c..', '..b..'] };
+const DFLY_COLS = ['#2f86b8', '#3a9a62', '#b8452e'];
+// Sunflowers along the lawn, clear of the puddles and the tree's trunk: [x, days behind the rest, height].
+// Each comes up from day 172, is in bud from 188, flowers from 194, droops and browns from 246 and is
+// gone by 264 (plus its own lag).
+export const SUNFLOWERS = [];
+for (let x = 2, last = -9; x < W - 2; x++) {
+  if (x - last < 5 || (x >= 9 && x <= 29) || PUDDLES.some(([px, w]) => x >= px - 3 && x <= px + w + 2) || hash(x, 211) > 0.22) continue;
+  SUNFLOWERS.push([x, Math.round((hash(x, 212) - 0.5) * 12), 9 + Math.floor(hash(x, 213) * 5)]);
+  last = x;
+}
+const sunflowerStage = d => (d < 172 || d >= 264 ? null : d < 188 ? 'grow' : d < 194 ? 'bud' : d < 246 ? 'bloom' : 'droop');
+const SUNFLOWER_HEAD = ['.yyy.', 'ycccy', 'ycccy', '.yyy.'];
+const SUNFLOWER_DROOP = ['.ccc', 'yccy', '..y.'];
+
 let falling = [], nextDrop = 0, geese = null, nextGeese = null, scatteredAt = -Infinity;
 let robins = [], nextRobins = null, robinVisits = 0;
+let butterflies = [], nextButterfly = null, dflies = [], thunder = null, flashUntil = 0, nextFlash = 0;
 const REGROW = 6 * 60e3; // ms for a scattered pile to build back up, at normal speed
 
 function size() {
@@ -276,6 +312,31 @@ function leaveRobin(rb, dir = rb.x < W / 2 ? -1 : 1) {
   Object.assign(rb, { leave: true, fly: null, hop: null, dir, vx: dir * (30 + Math.random() * 10), vh: 14 + Math.random() * 8 });
 }
 
+/** A butterfly or two flutters in from the side (n of them). */
+export function butterfliesArrive(n = 1) {
+  for (let i = 0; i < n; i++) {
+    const from = Math.random() < 0.5 ? -3 : W + 3;
+    butterflies.push({
+      x: from, h: 12 + Math.random() * 20, tx: 15 + Math.random() * (W - 30), th: 3 + Math.random() * 16, dir: from < 0 ? 1 : -1,
+      c: BFLY_COLS[Math.floor(Math.random() * BFLY_COLS.length)], ph: Math.random() * 9, rest: 0, life: 35 + Math.random() * 35, leave: false, jink: 0, landing: false,
+    });
+  }
+}
+/** The butterflies about now: { x, h (sky px, h above the lawn), down (resting), going (flying off) }. */
+export const butterfliesNow = () => butterflies.map(b => ({ x: b.x, h: b.h, down: b.rest > 0, going: b.leave }));
+/** A dog has snapped at x (sky px): any butterfly within reach jinks up and away. */
+export function startleButterfly(x, reach = 9) {
+  for (const b of butterflies) {
+    if (b.leave || Math.abs(b.x - x) > reach || b.h > 26) continue;
+    Object.assign(b, { rest: 0, jink: 0.7, landing: false, th: 18 + Math.random() * 14 });
+    b.tx = Math.min(W - 6, Math.max(6, b.x + (b.x < x ? -1 : 1) * (12 + Math.random() * 16)));
+  }
+}
+/** Sunflowers in flower now, as landing spots: { x, h } (the top of the head, above the lawn). */
+function sunflowerHeads(day) {
+  return SUNFLOWERS.filter(([, lag]) => sunflowerStage(day - lag) === 'bloom').map(([x, , h]) => ({ x, h: h + 1 }));
+}
+
 function draw(t) {
   if (!k) return;
   const dt = Math.min(0.5, Math.max(0, t - prevT));
@@ -326,6 +387,7 @@ function draw(t) {
       ctx.fillStyle = c; ctx.fillRect(x, y, 8, 8);
     }
   }
+  drawThunderheads(t, day, horizon, ph, over);
   drawGeese(t, day, horizon, ph);
   // Clouds drift with the wind.
   const n = Math.round(2 + k.cloud * 6), speed = 0.6 + k.wind * 0.18;
@@ -345,7 +407,10 @@ function draw(t) {
   const patches = !full && lying > 0.04 ? lying * 1.15 : 0; // melt values under this are still snow
   const land = c => { c = shade(c, ph); return cover ? mix(c, white, cover) : c; };
   const snowOn = c => mix(shade(c, ph), SNOW, 0.8);
-  const [d1, d2, dg, patchy] = LAND(day);
+  // A dry spell (k.drought) fades the green a little everywhere, and browns the lawn in patches.
+  const dry = full || patches ? 0 : (k.drought || 0) * growing(day);
+  let [d1, d2, dg, patchy] = LAND(day);
+  if (dry) [d1, d2, dg] = [d1, d2, dg].map(c => mix(c, '#b9ad66', dry * 0.25));
   const hill = base => [-1, ...PATCH.keys()].map(p => land(p < 0 || !patchy ? base : mix(base, PATCH[p], patchy * 0.65)));
   const c1 = hill(d1), c2 = hill(d2), grass = land(dg);
   const tops = [];
@@ -360,7 +425,14 @@ function draw(t) {
     snowPatches(x => tops[x][0], x => tops[x][1], horizon, patches + 0.08, snowOn(d1));
     snowPatches(x => tops[x][1], () => ground, horizon, patches, snowOn(d2));
   }
+  if (dry > 0.05) {
+    snowPatches(x => tops[x][1], () => ground, horizon, dry * 0.7, land(mix(d2, '#c9ad60', 0.7)), dryAt);
+    snowPatches(x => tops[x][1], () => ground, horizon, dry * 0.4, land(mix(d2, '#a8884a', 0.75)), dryAt);
+  }
   drawHouse(t, day, horizon, ph, land, full || lying >= 0.3, snowOn);
+  // Heat haze over the hills on a hot afternoon.
+  const hazy = (k.hot && k.afternoon && ph === 'day' && !k.raining && !still) || q.has('heatshimmer');
+  if (hazy) shimmer(t, horizon);
   const sway = k.windy ? Math.round(Math.sin(t * 6)) : 0;
   const tx = 14, ty = horizon + 12;
   const bark = night ? '#2a1d14' : '#6b4a2b';
@@ -381,10 +453,15 @@ function draw(t) {
     ctx.fillRect(tx + p.x + sway, ty + p.y, 1, 1);
   }
   ctx.fillStyle = grass; ctx.fillRect(0, ground, W, H - ground);
+  if (dry > 0.05) snowPatches(() => ground, () => H, horizon, dry * 0.7, land(mix(dg, '#c9ad60', 0.7)), dryAt);
   ctx.fillStyle = mix(grass, '#ffffff', 0.18);
   for (let x = (Math.floor(t) % 2); x < W; x += 4) ctx.fillRect(x, ground, 1, 1);
   // Spring flowers, under the snow if there is any: none under a full cover, none where a patch lies.
-  if (!full) drawFlowers(day, land, dg, (x, y) => patches && meltAt(x, y - horizon) < patches);
+  if (!full) {
+    const snowAt = (x, y) => patches && meltAt(x, y - horizon) < patches;
+    drawFlowers(day, land, dg, snowAt);
+    drawSunflowers(t, day, land, dg, snowAt);
+  }
   if (patches) snowPatches(() => ground, () => H, horizon, patches, snowOn(dg));
   // Lying snow banks up a little along the lawn's edge.
   if (lying > 0.3) {
@@ -429,7 +506,9 @@ function draw(t) {
       if (Math.sin(t * 0.9 + i * 2.1) > 0.2) { ctx.fillStyle = night ? '#a9bde0' : '#ffffff'; ctx.fillRect(x + 2 + ((i * 5) % (w - 4)), ground - 2, 1, 1); }
     });
   }
+  drawDragonflies(t, dt, day, ph);
   drawRobins(t, dt, day, ph);
+  drawButterflies(t, dt, day, ph);
   if (k.fog) {
     ctx.fillStyle = night ? 'rgba(160,170,200,0.18)' : 'rgba(255,255,255,0.32)';
     for (let i = 0; i < 4; i++) ctx.fillRect(0, horizon - 6 + i * 7 + Math.round(Math.sin(t / 3 + i) * 2), W, 4);
@@ -457,7 +536,7 @@ function draw(t) {
       ctx.fillRect(Math.floor(x), Math.floor(y), 2, 1);
     }
   }
-  busy = falling.length > 0 || !!geese || robins.length > 0;
+  busy = falling.length > 0 || !!geese || robins.length > 0 || butterflies.length > 0 || dflies.length > 0 || hazy || !!thunder?.flashing;
 }
 
 // Wildflowers (single pixels on short stems, here and there along the lawn's edge) and dandelions.
@@ -567,14 +646,14 @@ function drawPile(land) {
   }
 }
 
-/** Lying snow, partly melted: in each column from from(x) to to(x), the pixels whose melt value is under thr. */
-function snowPatches(from, to, horizon, thr, col) {
+/** Lying snow, partly melted (or, with at = dryAt, a lawn browned in patches): in each column from from(x) to to(x), the pixels whose melt value is under thr. */
+function snowPatches(from, to, horizon, thr, col, at = meltAt) {
   ctx.fillStyle = col;
   for (let x = 0; x < W; x++) {
     const y1 = to(x);
     let run = -1;
     for (let y = from(x); y <= y1; y++) {
-      const on = y < y1 && meltAt(x, y - horizon) < thr;
+      const on = y < y1 && at(x, y - horizon) < thr;
       if (on && run < 0) run = y;
       else if (!on && run >= 0) { ctx.fillRect(x, run, 1, y - run); run = -1; }
     }
@@ -644,6 +723,162 @@ function drawGeese(t, day, horizon, ph) {
   if (lead + g.n * 2 + 6 < -4) geese = null;
 }
 
+// ---------- summer ----------
+
+// Sunflowers along the lawn: a stem shooting up, a green bud, then the big yellow head (nodding in the
+// wind), which droops and browns as summer ends. Through land(), like the wildflowers.
+function drawSunflowers(t, day, land, dg, snowAt) {
+  const stem = land(mix(dg, '#2f6b2a', 0.55)), leaf = land('#2f6e26'), cols = { y: land('#f5c21a'), c: land('#6b4220') };
+  const dead = { y: land('#b8902e'), c: land('#5a3a1e') };
+  const put = (c, x, y) => { if (!snowAt(x, y)) { ctx.fillStyle = c; ctx.fillRect(x, y, 1, 1); } };
+  for (const [x, lag, h] of SUNFLOWERS) {
+    const d = day - lag, s = sunflowerStage(d);
+    if (!s) continue;
+    const tall = s === 'grow' ? Math.max(2, Math.round(h * ramp(d, 172, 188))) : h - 2;
+    const lean = s === 'droop' ? 1 : k.windy ? Math.round(Math.sin(t * 5 + x)) : 0;
+    for (let j = 1; j <= tall; j++) put(stem, x + (j === tall ? lean : 0), ground - j);
+    if (tall >= 5) { put(leaf, x - 1, ground - 3); put(leaf, x + 1, ground - 5); }
+    if (tall >= 8) put(leaf, x - 1, ground - 7);
+    const top = ground - tall, hx = x + lean;
+    if (s === 'grow') { put(leaf, hx, top - 1); continue; }
+    if (s === 'bud') { put(leaf, hx - 1, top - 1); put(leaf, hx, top - 1); put(leaf, hx + 1, top - 1); put(leaf, hx, top - 2); continue; }
+    const head = s === 'bloom' ? SUNFLOWER_HEAD : SUNFLOWER_DROOP, c = s === 'bloom' ? cols : dead;
+    const x0 = hx - (s === 'bloom' ? 2 : 1), y0 = top - (s === 'bloom' ? 3 : 1);
+    head.forEach((row, j) => [...row].forEach((ch, i) => ch !== '.' && put(c[ch], x0 + i, y0 + j)));
+  }
+}
+
+// Butterflies: in ones and twos they flutter in, wander low over the lawn, rest now and then on a
+// sunflower or the grass, and after a while flutter off. Rain, wind, fog or evening sends them away.
+function drawButterflies(t, dt, day, ph) {
+  if (nextButterfly == null) nextButterfly = t + (q.has('butterflies') ? 2 : 10 + Math.random() * 40);
+  const ok = !still && ph === 'day' && !k.raining && !k.fog && k.gust < 20 && k.temp >= 58 && !((k.snowLying || 0) >= 0.3);
+  if (ok && fluttering(day) > 0.5 && butterflies.length < 3 && t > nextButterfly) {
+    butterfliesArrive(Math.random() < 0.3 ? 2 : 1);
+    nextButterfly = t + (q.has('butterflies') ? 8 : 20 + Math.random() * 60);
+  }
+  for (const b of butterflies) {
+    b.life -= dt;
+    if ((!ok || b.life < 0) && !b.leave) Object.assign(b, { leave: true, rest: 0, landing: false, tx: b.x < W / 2 ? -10 : W + 10, th: b.h + 25 });
+    if (b.rest > 0) { b.rest -= dt; continue; }
+    const dx = b.tx - b.x, fast = b.jink > 0 || b.leave;
+    b.x += Math.sign(dx) * Math.min(Math.abs(dx), (b.jink > 0 ? 32 : b.leave ? 16 : 9) * dt);
+    b.h += (b.th - b.h) * Math.min(1, dt * (fast ? 3 : 1.4));
+    b.jink -= dt;
+    if (Math.abs(dx) > 0.5) b.dir = Math.sign(dx);
+    if (b.leave || Math.abs(dx) > 0.8 || Math.abs(b.th - b.h) > 1.2) continue;
+    if (b.landing) { b.landing = false; b.h = b.th; b.rest = 2 + Math.random() * 4; continue; }
+    if (Math.random() < 0.35) { // somewhere to rest: a sunflower, or the grass
+      const heads = sunflowerHeads(day).filter(s => Math.abs(s.x - b.x) < 40);
+      const s = heads.length && Math.random() < 0.7 ? heads[Math.floor(Math.random() * heads.length)] : { x: b.x + (Math.random() - 0.5) * 30, h: 0 };
+      Object.assign(b, { tx: Math.min(W - 4, Math.max(4, s.x)), th: s.h, landing: true });
+    } else Object.assign(b, { tx: Math.min(W - 6, Math.max(6, b.x + (Math.random() - 0.5) * 44)), th: 3 + Math.random() * 20 });
+  }
+  butterflies = butterflies.filter(b => !(b.leave && (b.x < -6 || b.x > W + 6)));
+  for (const b of butterflies) {
+    const resting = b.rest > 0, frame = resting || Math.floor(t * 8 + b.ph) % 2 ? 'shut' : 'open';
+    const bob = resting ? 0 : Math.sin(t * 6 + b.ph) * 1.3;
+    const x0 = Math.round(b.x) - 2, y0 = ground - 3 - Math.round(b.h + bob), col = { c: shade(b.c, ph), b: shade('#3a2e28', ph) };
+    BFLY[frame].forEach((row, j) => [...row].forEach((ch, i) => { if (ch !== '.') { ctx.fillStyle = col[ch]; ctx.fillRect(x0 + i, y0 + j, 1, 1); } }));
+  }
+}
+
+// Dragonflies after summer rain: they hover over the puddles, then dart to a new spot.
+function drawDragonflies(t, dt, day, ph) {
+  const want = !still && k.puddles && !k.raining && !k.fog && !k.windy && ph !== 'night' && k.temp >= 50 && darting(day) > 0.5 ? 2 : 0;
+  const staying = dflies.filter(f => !f.leave);
+  if (staying.length > want) staying.slice(want).forEach(f => Object.assign(f, { leave: true, wait: 0, tx: f.x < W / 2 ? -10 : W + 10, th: 40 }));
+  for (let i = staying.length; i < want; i++) {
+    const from = Math.random() < 0.5 ? -4 : W + 4;
+    dflies.push({ x: from, h: 20, tx: 0, th: 0, wait: 0, home: Math.floor(Math.random() * PUDDLES.length), dir: 1, c: DFLY_COLS[Math.floor(Math.random() * DFLY_COLS.length)], ph: Math.random() * 9, leave: false, aim: true });
+  }
+  for (const f of dflies) {
+    if (f.aim) { // a new spot over its puddle (now and then, another puddle)
+      if (Math.random() < 0.15) f.home = Math.floor(Math.random() * PUDDLES.length);
+      const [px, w] = PUDDLES[f.home];
+      Object.assign(f, { tx: px - 3 + Math.random() * (w + 6), th: 1.5 + Math.random() * 6, aim: false });
+    }
+    if (f.wait > 0) { f.wait -= dt; if (f.wait <= 0) f.aim = !f.leave; continue; }
+    const dx = f.tx - f.x, dh = f.th - f.h, dist = Math.hypot(dx, dh), step = (f.leave ? 50 : 70) * dt;
+    if (Math.abs(dx) > 0.3) f.dir = Math.sign(dx);
+    if (dist <= step) { f.x = f.tx; f.h = f.th; f.wait = f.leave ? 0 : 0.6 + Math.random() * 2.2; continue; }
+    f.x += (dx / dist) * step; f.h += (dh / dist) * step;
+  }
+  dflies = dflies.filter(f => !(f.leave && (f.x < -6 || f.x > W + 6)));
+  const wing = shade(ph === 'day' ? '#e4eef4' : '#c8d2e0', ph);
+  for (const f of dflies) {
+    const hovering = f.wait > 0, x0 = Math.round(f.x) - 2, y = ground - 3 - Math.round(f.h + (hovering ? Math.sin(t * 9 + f.ph) * 0.4 : 0));
+    ctx.fillStyle = shade(f.c, ph); ctx.fillRect(x0, y, 4, 1);
+    ctx.fillStyle = shade('#1e2a30', ph); ctx.fillRect(f.dir > 0 ? x0 + 3 : x0, y, 1, 1);
+    if (Math.floor(t * 12 + f.ph) % 2) { ctx.fillStyle = wing; ctx.fillRect(x0 + (f.dir > 0 ? 1 : 2), y - 1, 1, 1); ctx.fillRect(x0 + (f.dir > 0 ? 2 : 1), y + 1, 1, 1); }
+  }
+}
+
+// Heat haze: on a hot afternoon the far hills (and the house on them) waver, row by row.
+function shimmer(t, horizon) {
+  for (let y = horizon - 3; y < horizon + 17; y++) {
+    const dx = Math.round(Math.sin(t * 3.2 + y * 0.9) * 0.55 + Math.sin(t * 1.7 - y * 0.4) * 0.45);
+    if (dx) ctx.drawImage(cv, 0, y, W, 1, dx, y, W, 1);
+  }
+}
+
+// Thunderheads: when a storm is building (the pressure falling, no rain yet) on a warm day, towering
+// clouds with flat anvil tops stand on the horizon, lit on the sun's side. After dark, lightning flickers
+// inside them.
+function thunderShape(cx, height, baseW, topW, seed) {
+  const rows = [], neck = baseW * 0.36;
+  for (let j = 0; j < height; j++) {
+    const u = j / (height - 1);
+    let l, r, anvil = false;
+    if (u < 0.8) {
+      // The tower: billowing out in heaps on either side, narrowing a little as it climbs.
+      const hw = (baseW / 2) * (1 - 0.3 * u);
+      l = cx - hw - 2.4 * Math.abs(Math.sin(j * 0.37 + seed)) - smooth(j / 2.2, seed) * 1.6;
+      r = cx + hw + 2.4 * Math.abs(Math.sin(j * 0.33 + seed * 1.7)) + smooth(j / 2.2, seed + 31) * 1.6;
+    } else {
+      // The anvil: spreading out under a flat top, mostly downwind (to the right), thin at its ends.
+      const f = (u - 0.8) / 0.2;
+      l = cx - neck - (topW * 0.3 - neck) * f ** 0.7 - smooth(j / 1.5, seed + 7) * 0.8;
+      r = cx + neck + (topW * 0.72 - neck) * f ** 0.55 + smooth(j / 1.5, seed + 9) * 0.8;
+      if (j === height - 1) { l += 2; r -= 3; }
+      anvil = true;
+    }
+    rows.push({ u, l: Math.round(l), r: Math.round(r), mid: (l + r) / 2, hw: (r - l) / 2, anvil });
+  }
+  return rows;
+}
+function drawThunderheads(t, day, horizon, ph, over) {
+  const on = (k.falling && !k.raining && !k.snowing && k.temp >= 60 && stormy(day) > 0.3) || q.has('thunderheads');
+  if (!on) { if (thunder) thunder.flashing = false; return; }
+  const big = Math.max(20, Math.min(85, Math.round(horizon * 0.8))), key = `${big}`;
+  if (thunder?.key !== key) thunder = { key, heads: [[38, thunderShape(38, big, 30, 70, 4.1)], [98, thunderShape(98, Math.round(big * 0.6), 18, 36, 9.3)]], flashing: false };
+  // Lightning after dark: a flicker every few seconds.
+  const dark = ph === 'night' || ph === 'dusk';
+  thunder.flashing = dark && !still;
+  if (thunder.flashing && t > nextFlash) { flashUntil = t + (Math.random() < 0.4 ? 0.25 : 0.12); nextFlash = t + 3 + Math.random() * 7; }
+  const flash = thunder.flashing && t < flashUntil;
+  const tones = ['#fbf8f1', '#e2e0de', '#bdc0c9', '#8b8f9f'].map(c => {
+    c = mix(shade(c, ph), '#8a93a3', Math.min(0.6, over * 0.6));
+    return flash ? mix(c, '#efeaff', 0.65) : c;
+  });
+  const sun = ph === 'dawn' ? -1 : 1, base = horizon + 12;
+  for (const [, rows] of thunder.heads) {
+    rows.forEach((row, j) => {
+      const y = base - j;
+      const under = row.anvil && j > 0 && !rows[j - 1].anvil ? 1 : 0;
+      for (let x = Math.max(0, row.l); x <= Math.min(W - 1, row.r); x++) {
+        const side = (x - row.mid) / Math.max(1, row.hw);
+        // Lit on the sun's side and toward the top, in soft heaps; dark along the base and under the anvil.
+        let light = 0.45 + 0.34 * sun * side + 0.3 * (row.u - 0.4) + (smooth(x / 3.2 + j * 0.15, y / 2.6) - 0.5) * 0.5;
+        if (row.anvil) light += 0.12;
+        if (j < 3 || (under && (x < rows[j - 1].l || x > rows[j - 1].r))) light = 0;
+        ctx.fillStyle = tones[Math.max(0, Math.min(3, 3 - Math.floor(light * 3.4)))];
+        ctx.fillRect(x, y, 1, 1);
+      }
+    });
+  }
+}
+
 function loop(now) {
   const fast = k && (k.raining || k.windy || k.fog || busy);
   if (now - last >= (fast ? 83 : 250)) {
@@ -659,7 +894,7 @@ export function initSky() {
   still = matchMedia('(prefers-reduced-motion: reduce)').matches;
   size();
   addEventListener('resize', () => { size(); draw(performance.now() / 1000); });
-  if (q.has('dogspeed')) window.__sky = { draw: secs => draw(secs ?? performance.now() / 1000), geese: () => { nextGeese = 0; }, robins: n => robinsArrive(n) };
+  if (q.has('dogspeed')) window.__sky = { draw: secs => draw(secs ?? performance.now() / 1000), geese: () => { nextGeese = 0; }, robins: n => robinsArrive(n), butterflies: n => butterfliesArrive(n) };
 }
 
 /** New conditions from the weather; starts the animation the first time. */

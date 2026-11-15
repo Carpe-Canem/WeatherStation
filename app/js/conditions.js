@@ -65,7 +65,7 @@ export function phaseAt(lat, lon, t = Date.now()) {
 export const PREVIEWS = [
   ['live', 'Live weather'], ['sunny', 'Sunny'], ['rain', 'Rain'], ['wind', 'Windy'],
   ['puddles', 'After rain'], ['rainbow', 'Rainbow'], ['fog', 'Fog'], ['snow', 'Snow'], ['aftersnow', 'After snow'], ['frost', 'Frosty'],
-  ['ice', 'Icy puddles'], ['hot', 'Hot'],
+  ['ice', 'Icy puddles'], ['hot', 'Hot'], ['drought', 'Dry spell'],
   ['storm', 'Storm coming'], ['dawn', 'Sunrise'], ['night', 'Night'], ['warmnight', 'Warm night'],
 ];
 
@@ -76,8 +76,11 @@ export const PREVIEWS = [
 // preview or demo data), in localStorage.
 // A rainbow (k.rainbow, 0-1) shows for the first half hour or so after rain stops, while the sun's up and
 // the cloud is breaking.
+// A dry spell browns the lawn (k.drought, 0-1): from five days after the last soaking rain (a tenth of an
+// inch in a day), faster the hotter it is, and only on warm days; after a soaking it greens up in a day or two.
 // Debug: ?snowlying=0..1 sets how much snow lies (with a snowman, unless it's snowing), ?ice freezes the
-// puddles, ?rainbow puts up a rainbow (or the Settings preview "Rainbow").
+// puddles, ?rainbow puts up a rainbow (or the Settings preview "Rainbow"), ?drought=0..1 browns the lawn
+// (or the Settings preview "Dry spell").
 
 const q = new URLSearchParams(location.search);
 const YARD_KEY = 'backyard-yard';
@@ -86,7 +89,8 @@ function loadYard() {
   if (!yard) {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(YARD_KEY)); } catch { /* storage unavailable */ }
-    yard = { snow: 0, t: Date.now(), man: 0, wet: 0, ...(saved && typeof saved === 'object' ? saved : {}) };
+    // (A yard first seen now counts as freshly watered: no dry spell until one has been seen.)
+    yard = { snow: 0, t: Date.now(), man: 0, wet: 0, soakAt: Date.now(), brown: 0, ...(saved && typeof saved === 'object' ? saved : {}) };
   }
   return yard;
 }
@@ -108,6 +112,10 @@ function yardMemory(k, preview, remember) {
     if (y.snow < 0.12) y.man = 0;
     if (k.rain || k.puddles) y.wet = now;
     if (k.rain) y.rainAt = now; // still coming down (y.wet carries on while the puddles last)
+    if (k.rainToday >= 0.1 && !k.snowing) y.soakAt = now; // a soaking today (its own timestamp: not y.wet or y.rainAt)
+    const dryDays = (now - y.soakAt) / 864e5;
+    if (dryDays > 5 && k.temp >= 70) y.brown = Math.min(1, y.brown + (h / 24) * (0.06 + (Math.min(100, k.temp) - 70) * 0.006));
+    else if (dryDays < 2) y.brown = Math.max(0, y.brown - (h / 24) * 0.6);
     y.t = now;
     try { localStorage.setItem(YARD_KEY, JSON.stringify(y)); } catch { /* storage unavailable */ }
   }
@@ -128,6 +136,8 @@ function yardMemory(k, preview, remember) {
   const bow = since < 20 ? 1 : Math.max(0, 1 - (since - 20) / 20);
   k.rainbow = !k.raining && !k.night && !k.freezing && k.cloud < 0.8 ? bow : 0;
   if (preview === 'rainbow' || q.has('rainbow')) k.rainbow = 1;
+  k.drought = mine ? y.brown : preview === 'drought' ? 0.85 : 0;
+  if (q.has('drought')) k.drought = q.get('drought') === '' ? 0.85 : Math.min(1, Math.max(0, +q.get('drought') || 0));
 }
 
 /**
@@ -142,6 +152,7 @@ export function conditions(c, dp, loc, preview = 'live', extra = {}) {
     wind: c?.wind ?? 0, gust: c?.gust ?? c?.wind ?? 0, uv: c?.uv ?? 0, humidity: c?.humidity ?? 50,
     dewpt: c?.dewpt ?? null, falling: dp != null && dp <= -0.06,
     lat: loc?.lat ?? null, // for the seasons: south of the equator they run half a year apart
+    afternoon: (h => h >= 12 && h < 19)(new Date().getHours()), // the hottest part of the day (heat shimmer)
   };
   // Cloud cover, 0 (clear) to 1 (overcast), from the best source to hand; null when unknown.
   let cloud = null, fogObs = false;
@@ -178,7 +189,8 @@ export function conditions(c, dp, loc, preview = 'live', extra = {}) {
     case 'aftersnow': set({ phase: 'day', temp: 28, rainRate: 0, rainToday: 0, wind: 3, gust: 5, uv: 2, humidity: 75, falling: false }); break;
     case 'ice': set({ phase: 'day', temp: 27, rainRate: 0, rainToday: 0.3, wind: 2, gust: 4, uv: 2, humidity: 80, falling: false }); break;
     case 'frost': set({ phase: 'dawn', temp: 26, rainRate: 0, rainToday: 0, wind: 2, gust: 4, uv: 1, humidity: 80, falling: false }); break;
-    case 'hot': set({ phase: 'day', temp: 94, rainRate: 0, rainToday: 0, wind: 3, gust: 6, uv: 9, humidity: 45, falling: false }); break;
+    case 'hot': set({ phase: 'day', afternoon: true, temp: 94, rainRate: 0, rainToday: 0, wind: 3, gust: 6, uv: 9, humidity: 45, falling: false }); break;
+    case 'drought': set({ phase: 'day', afternoon: true, temp: 88, rainRate: 0, rainToday: 0, wind: 4, gust: 7, uv: 8, humidity: 30, falling: false }); break;
     case 'storm': set({ temp: 66, rainRate: 0, wind: 12, gust: 22, uv: 1, humidity: 82, falling: true }); break;
     case 'night': set({ phase: 'night', rainRate: 0, uv: 0 }); break;
     case 'rainbow': set({ phase: 'day', temp: 62, rainRate: 0, rainToday: 0.4, wind: 5, gust: 8, uv: 4, humidity: 86, falling: false }); break;

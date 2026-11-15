@@ -11,7 +11,8 @@
 // fireworks4|bone|dogpile|ghost|pumpkin; and the fall leaf pile: leafpile); with frozen puddles
 // (?preview=ice, or ?ice) ?dogact=iceslide has them all slide; in spring, ?dogscene=robins brings robins
 // down onto the lawn (or sky.js's ?robins) and ?dogact=puffpounce has Ziggy pounce on a dandelion puff
-// (?season=spring&seasonat=0.6 has the most);
+// (?season=spring&seasonat=0.6 has the most); in summer (?season=summer, sky.js's ?butterflies for more of
+// them) ?dogact=bflysnap has Ziggy snap at the butterflies and ?dogact=bflywatch has Minnie watch them;
 // ?holiday=thanksgiving dresses them for that holiday whatever the date (ids in holidays.js), ?holiday=none
 // leaves them undressed; ?dogact=quip has them say their holiday lines.
 
@@ -21,6 +22,7 @@ import { OUTFITS } from './outfits.js';
 import {
   PUDDLES, PILE, W as SKY_W, pileSize, scatterPile, pileColours,
   DANDELIONS, dandelions, blowDandelion, robinsArrive, robinsNow, robinVisit, startleRobins,
+  butterfliesNow, startleButterfly,
 } from './sky.js';
 
 const q = new URLSearchParams(location.search);
@@ -300,6 +302,10 @@ function weights(d) {
   // Spring: dandelion puffs to pounce on; a rainbow for Minnie to gaze at.
   if (z && !k.raining && !k.night && dandelions().some(p => p.puff)) add({ puffpounce: 1 });
   if (m && k.rainbow) add({ gaze: 3 });
+  // Summer: butterflies over the lawn. Ziggy snaps at the low ones, Minnie watches; Frank pays them no mind.
+  const bf = butterfliesNow().filter(b => !b.going);
+  if (z) add({ bflysnap: bf.some(b => b.h < 16) ? 3 : 0 });
+  if (m) add({ bflywatch: bf.length ? 2.5 : 0 });
   if (k.hot) {
     z ? add({ sploot: 5, drink: bowl ? 2.5 : 0 }) : f ? add({ lie: 3, sploot: 2 }) : add({ shade: 4, drink: bowl ? 1.5 : 0 });
     w.zoomies = 0; w.playbow = (w.playbow || 0) * 0.3; w.wander *= 0.4; w.hop *= 0.5;
@@ -1416,6 +1422,8 @@ function leafBitsStep(dt) {
 // A dandelion puff (sky.js) bursts into fluff when a dog runs (not walks) through it, and Ziggy pounces
 // on them on purpose; Minnie sneezes. When robins drop onto the lawn, Ziggy goes after them (up they go,
 // and some land again further off), Minnie sits and watches them, and Frank turns his back on the lot.
+// Summer's butterflies (also sky.js) are everyday acts, not a scene: Ziggy snaps at them (bflysnap),
+// Minnie watches them (bflywatch), and Frank ignores them.
 
 let seeds = [], robinSeen = 0;
 const skyPx = () => innerWidth / SKY_W;
@@ -1518,6 +1526,36 @@ Object.assign(ACTS, {
     if (rs.length) d.facing = (rs.reduce((s, r) => s + r.x, 0) / rs.length) * skyPx() > d.sx ? -1 : 1;
     return { dur: rnd(8, 12), pose: () => ({ lie: 1, head: 0.2, ear: -0.15 }) };
   },
+  // Ziggy, after a butterfly: trots under the nearest low one and snaps, hopping. It always gets away.
+  bflysnap: d => needGround(d, 'bflysnap') || {
+    dur: rnd(6, 10),
+    pose: (dd, u, t) => {
+      const px = skyPx(), b = butterfliesNow().filter(o => !o.going && o.h < 22).sort((a, c) => Math.abs(a.x * px - dd.sx) - Math.abs(c.x * px - dd.sx))[0];
+      if (!b) { dd.actT = dd.act.dur; return {}; }
+      const bx = b.x * px, { fx, dir } = noseTo(dd, bx);
+      if (Math.abs(fx - dd.fx) > 0.02 && !dd.snapped) { walkTo(dd, fx); dd.slow = 1.5; return { head: -0.3, ear: 0.1, mouth: 1 }; }
+      dd.move = null; dd.facing = dir;
+      const c = (t * 1.3) % 1;
+      if (c < 0.45) { dd.snapped = 0; return { head: -0.4, ear: 0.15 }; }
+      if (!dd.snapped) {
+        dd.snapped = 1;
+        startleButterfly(b.x);
+        if (!dd.said) { dd.said = 1; say(dd, Math.random() < 0.5 ? 'SNAP!' : 'gotcha!', 1.2, 'happy'); }
+      }
+      return { y: -Math.sin(((c - 0.45) / 0.55) * Math.PI) * 7, mouth: Math.floor(t * 10) % 2, head: -0.35 };
+    },
+  },
+  // Minnie: sits and watches one drift by, her head following it up and down.
+  bflywatch: () => ({
+    dur: rnd(8, 14),
+    pose: (d, u, t) => {
+      const px = skyPx(), b = butterfliesNow().filter(o => !o.going).sort((a, c) => Math.abs(a.x * px - d.sx) - Math.abs(c.x * px - d.sx))[0];
+      if (!b) { d.actT = d.act.dur; return { sit: 1 }; }
+      d.facing = b.x * px > d.sx ? 1 : -1;
+      if (!d.said && u > 0.15) { d.said = 1; say(d, Math.random() < 0.5 ? '…pretty.' : '…a butterfly.', 1.8); }
+      return { sit: 1, head: clamp(-0.05 - b.h * 0.018, -0.42, -0.05) + 0.03 * Math.sin(t * 2.1), ear: 0.15 };
+    },
+  }),
   // Ziggy: creeps up on a dandelion puff, a wiggle, and pounces. Fluff everywhere.
   puffpounce: d => {
     const g = needGround(d, 'puffpounce');
