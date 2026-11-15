@@ -1,6 +1,6 @@
 // Keeps the app shell available offline. Weather data is never cached here;
 // the app stores its own last readings.
-const CACHE = 'backyard-shell-v18';
+const CACHE = 'backyard-shell-v19';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/charts.js', 'js/demo.js', 'js/units.js', 'js/wu.js', 'js/reorder.js', 'js/conditions.js', 'js/sky.js', 'js/dogs.js', 'js/sprites.js', 'js/holidays.js', 'js/outfits.js',
