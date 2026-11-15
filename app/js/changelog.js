@@ -3,6 +3,7 @@
 // Settings shows the newest entry's number as the running version.
 // (There was no version 4.)
 export const CHANGES = [
+  [29, '2026-11-15', 'The backyard tree is bigger, filling more of the sky above the hills on tall phones, and the demo data notice at the top of the screen is gone.'],
   [28, '2026-11-15', 'Summer in the backyard: butterflies flutter over the lawn (Ziggy snaps at them, Minnie watches, Frank ignores them), sunflowers bloom along it in mid to late summer, and dragonflies dart over the puddles after rain. In a dry spell the lawn browns in patches, heat shimmers over the hills on hot afternoons, and thunderheads tower on the horizon when a storm is building. Settings has a new weather preview: Dry spell.'],
   [27, '2026-11-15', 'Spring in the backyard: blossom petals drift off the tree, wildflowers and dandelions come up in the lawn (the dogs send the puffs flying), and robins drop in to hop about. Ziggy chases them, Minnie watches, and Frank ignores them. After rain, a rainbow comes out. Settings has a new weather preview: Rainbow.'],
   [26, '2026-11-15', 'Winter in the backyard: snow stays on the hills for a few days after it falls and melts away in patches, a snowman goes up on the lawn, and puddles freeze over for the dogs to slide on. There are more stars on winter nights, and smoke rises from a little house on the far hill. Settings has two new weather previews: After snow and Icy puddles.'],
