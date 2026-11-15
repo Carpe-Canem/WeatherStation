@@ -374,6 +374,25 @@ main { position: relative; z-index: 1; }
   0% { translate: -14px 0; scale: 1; } 25% { translate: 0 -5px; scale: 0.7; }
   50% { translate: 14px 0; scale: 1; } 75% { translate: 0 5px; scale: 1.2; } 100% { translate: -14px 0; scale: 1; }
 }
+/* Props: leaves, fireflies, paw prints, the water bowl, the rope toy, a treat, a flash of lightning. */
+#pack .leaf, #pack .fly, #pack .print, #pack .bowl, #pack .rope, #pack .treat { position: absolute; left: 0; top: 0; }
+#pack .fly { width: 3px; height: 3px; margin: -1px; background: #eaff8a; opacity: 0.08; transition: opacity 0.35s; }
+#pack .fly.lit { opacity: 1; box-shadow: 0 0 6px 3px rgba(214, 255, 120, 0.55); }
+#pack .print { width: 4px; height: 2px; animation: print-fade 9s linear forwards; }
+#pack .print.snow { background: rgba(110, 130, 160, 0.6); }
+#pack .print.frost { background: rgba(40, 90, 50, 0.55); }
+@keyframes print-fade { from { opacity: 1; } to { opacity: 0; } }
+#pack .bowl.lap svg { animation: lap 0.25s steps(2) infinite; }
+@keyframes lap { from { translate: 0 0; } to { translate: 0 -1px; } }
+#pack .rope {
+  height: 4px; transform-origin: 0 50%; border-radius: 2px;
+  background: repeating-linear-gradient(90deg, #d9483b 0 5px, #f3ead8 5px 10px); box-shadow: 0 0 0 1px #141012;
+}
+#pack .treat { filter: drop-shadow(1px 0 0 #4a3a26) drop-shadow(-1px 0 0 #4a3a26) drop-shadow(0 1px 0 #4a3a26) drop-shadow(0 -1px 0 #4a3a26); }
+#pack .flash { position: absolute; inset: 0; background: #fff; opacity: 0; animation: flash 0.8s steps(1) forwards; }
+@keyframes flash { 0% { opacity: 0.16; } 12% { opacity: 0; } 22% { opacity: 0.1; } 30%, 100% { opacity: 0; } }
+/* A double tap drops a treat for the dogs, so it mustn't zoom the page. */
+html { touch-action: manipulation; }
 html.dog-held, html.dog-held * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: grabbing; }
 @media (prefers-reduced-motion: reduce) { #pack .bubble.angry, #pack .fx i, #pack .ledge { animation: none; opacity: 1; } }
 /* Frost along the top edge of every card on freezing mornings. */

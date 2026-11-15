@@ -477,7 +477,7 @@ function renderSettings() {
     <div class="card form">
       <div class="seg" role="group" aria-label="Dogs">${[[true, 'Show the dogs'], [false, 'Hide them']].map(([v, label]) =>
         `<button type="button" data-dogs="${v}" aria-pressed="${settings.dogs === v}">${label}</button>`).join('')}</div>
-      <p class="help">They wander the screen and react to your station: rain, gusts, cold, heat, sun and falling pressure. Tap one to see what it does.</p>
+      <p class="help">They wander the screen and react to your station: rain, gusts, snow, fog, cold, heat, sun, falling pressure and the time of day. Tap one to see what it does, press and hold to pick one up, or double-tap anywhere else to drop a treat.</p>
       <label for="preview">Weather preview</label>
       <select id="preview">${PREVIEWS.map(([id, label]) => `<option value="${id}"${settings.preview === id ? ' selected' : ''}>${label}</option>`).join('')}</select>
       <p class="help" style="margin-top:8px">Shows the sky and the dogs in other weather. Your readings are not changed.</p>
