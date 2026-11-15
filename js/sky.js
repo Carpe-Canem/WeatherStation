@@ -108,6 +108,12 @@ function hillColumn(x, y0, f, cols, patchy) {
     ctx.fillRect(x, y, 1, j < 15 ? run.band : H);
   }
 }
+// The tree is drawn TREE_SCALE times its original design, grown from the same root (column 4, row 12 of
+// the design, relative to the tree's spot), so its crown fills more of the sky above the hills.
+// Pixels stay one sky pixel each: the outline is scaled up, the leaves and branches are not.
+const TREE_SCALE = 1.5;
+const treeUp = (v, o) => o + Math.round((v - o) * TREE_SCALE);
+const treeDown = (v, o) => Math.floor(o + (v + 0.5 - o) / TREE_SCALE);
 // The canopy, pixel by pixel (relative to the tree's spot), each leaf with its own timing: some turn
 // and fall days before the others, so the colours mix.
 const canopy = [];
@@ -115,18 +121,34 @@ const canopy = [];
   const on = new Set(), rect = (x, y, w, h) => { for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) on.add(`${x + i},${y + j}`); };
   rect(-3, -16, 15, 10); rect(-1, -20, 11, 4); rect(-4, -10, 17, 5);
   ['-4,-6', '12,-6', '-1,-20', '9,-20', '-3,-16', '11,-16'].forEach(p => on.delete(p));
-  for (const p of on) {
-    const [x, y] = p.split(',').map(Number);
-    canopy.push({ x, y, turn: (r() - 0.5) * 16, drop: r(), light: y < -15 && x < 5 ? 0.12 : y > -9 && x > 4 ? -0.14 : 0 });
+  for (let Y = treeUp(-21, 12); Y <= treeUp(-4, 12); Y++) {
+    for (let X = treeUp(-5, 4); X <= treeUp(14, 4); X++) {
+      const x = treeDown(X, 4), y = treeDown(Y, 12); // the design pixel this one comes from
+      if (on.has(`${x},${y}`)) canopy.push({ x: X, y: Y, turn: (r() - 0.5) * 16, drop: r(), light: y < -15 && x < 5 ? 0.12 : y > -9 && x > 4 ? -0.14 : 0 });
+    }
   }
 }
-// Bare branches, seen once the leaves are gone.
-const BRANCHES = [
-  [4, -5], [4, -6], [4, -7], [4, -8], [5, -9], [5, -10], [5, -11], [4, -12], [4, -13], [4, -14], [5, -15], [5, -16],
-  [3, -6], [2, -7], [1, -8], [0, -9], [-1, -10], [-2, -11], [-2, -12], [1, -10], [1, -11], [0, -12], [0, -13],
-  [6, -6], [7, -7], [8, -8], [9, -9], [10, -10], [10, -11], [7, -10], [7, -11], [8, -12],
-  [6, -13], [7, -14], [7, -15], [3, -15], [2, -16], [2, -17],
-].map(([x, y]) => ({ x, y }));
+// Bare branches, seen once the leaves are gone: lines through the design's points, scaled up.
+const BRANCHES = [];
+{
+  const seen = new Set();
+  const line = (x0, y0, x1, y1) => {
+    const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+    for (let i = 0; i <= n; i++) {
+      const x = Math.round(x0 + ((x1 - x0) * i) / (n || 1)), y = Math.round(y0 + ((y1 - y0) * i) / (n || 1));
+      if (!seen.has(`${x},${y}`)) { seen.add(`${x},${y}`); BRANCHES.push({ x, y, sway: treeDown(y, 12) < -8 }); }
+    }
+  };
+  [
+    [[4, -5], [4, -8], [5, -9], [5, -11], [4, -12], [4, -14], [5, -15], [5, -16]],
+    [[3, -6], [-1, -10], [-2, -11], [-2, -12]],
+    [[0, -9], [1, -10], [1, -11], [0, -12], [0, -13]],
+    [[6, -6], [10, -10], [10, -11]],
+    [[8, -8], [7, -10], [7, -11], [8, -12]],
+    [[5, -12], [6, -13], [7, -14], [7, -15]],
+    [[4, -14], [3, -15], [2, -16], [2, -17]],
+  ].forEach(pts => pts.slice(1).forEach(([x, y], i) => line(treeUp(pts[i][0], 4), treeUp(pts[i][1], 12), treeUp(x, 4), treeUp(y, 12))));
+}
 // ---------- winter ----------
 // (Their own random numbers, so the clouds, fields and canopy above stay as they were.)
 const r2 = rand(1013);
@@ -436,10 +458,10 @@ function draw(t) {
   const sway = k.windy ? Math.round(Math.sin(t * 6)) : 0;
   const tx = 14, ty = horizon + 12;
   const bark = night ? '#2a1d14' : '#6b4a2b';
-  ctx.fillStyle = bark; ctx.fillRect(tx + 3, ty - 4, 3, 16);
+  ctx.fillStyle = bark; ctx.fillRect(tx + treeUp(3, 4), ty + treeUp(-4, 12), treeUp(6, 4) - treeUp(3, 4), 12 - treeUp(-4, 12));
   const [, density] = TREE(day);
   for (const p of BRANCHES) {
-    const x = tx + p.x + (p.y < -8 ? sway : 0), y = ty + p.y;
+    const x = tx + p.x + (p.sway ? sway : 0), y = ty + p.y;
     ctx.fillStyle = bark; ctx.fillRect(x, y, 1, 1);
     if ((k.snowing || lying >= 0.4) && density < 0.5) { ctx.fillStyle = snowOn('#ffffff'); ctx.fillRect(x, y - 1, 1, 1); }
   }

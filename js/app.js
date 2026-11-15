@@ -242,14 +242,6 @@ function renderStatus() {
   $('#refresh').classList.toggle('spin', state.loading);
 }
 
-function renderBanner() {
-  const el = $('#banner');
-  el.hidden = !isDemo() || state.view === 'settings';
-  if (!el.hidden) {
-    el.innerHTML = '<p>This is demo data. Connect your station to see your own readings.</p><button class="btn small" type="button" data-go="settings">Connect</button>';
-  }
-}
-
 const tile = (id, label, value, unit, sub, spark) => ({ id, html: `
   <div class="tile" data-id="${id}">
     <div class="label">${label}</div>
@@ -509,7 +501,6 @@ function render() {
   if (isDragging()) { renderPending = true; return; }
   renderPending = false;
   renderStatus();
-  renderBanner();
   if (state.view === 'now') renderNow();
   if (state.view === 'trends') renderTrends();
   updateWorld();
