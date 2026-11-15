@@ -1,0 +1,268 @@
+
+/* Round 3 (same layout as round 2): one section per holiday, each with its own yard and three dogs. */
+:root { --warn-bg: #fff1d6; --warn-line: #e3a84a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --warn-bg: #3a2c12; --warn-line: #a8782a; } }
+:root[data-theme="dark"] { --warn-bg: #3a2c12; --warn-line: #a8782a; }
+.jump { display: flex; flex-wrap: wrap; gap: 8px; }
+.jump a { font-weight: 800; font-size: 14px; color: var(--ink); text-decoration: none; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px; }
+.jump a:hover { border-color: var(--accent); }
+.jump a:focus-visible, .chip:focus-visible { outline: 3px solid var(--ring); outline-offset: 2px; }
+.jump small { font-size: 12px; font-weight: 700; color: var(--ink2); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.holiday { display: flex; flex-direction: column; gap: 22px; scroll-margin-top: 16px; }
+.holiday-head { display: flex; flex-direction: column; gap: 6px; padding-top: 18px; border-top: 3px solid var(--line); }
+.holiday-head h2 { font-weight: 800; font-size: clamp(26px, 5vw, 34px); line-height: 1.1; letter-spacing: -0.015em; }
+.holiday-head p { color: var(--ink2); max-width: 70ch; }
+.dog-head h3 { font-weight: 800; font-size: 22px; line-height: 1.1; letter-spacing: -0.01em; }
+.warn { font-size: 13px; font-weight: 700; color: var(--ink); background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 10px; padding: 7px 11px; }
+a.chip { text-decoration: none; }
+</style>
+
+<div class="wrap" id="root">
+  <header>
+    <p class="eyebrow">Round 3 of 3 · Easter, July 4, Dog Day, Halloween</p>
+    <h1>Holiday Outfits</h1>
+    <p class="lede">Three options for each dog for each of the last four holidays, drawn on the real sprites and worn through every pose. Dog Day is matching bandanas, so pick the same letter for all three. Frank's Halloween options are all capes, the one body costume. Pick one per dog per holiday, then copy your picks into the chat. Rounds 1 and 2 are already in the app.</p>
+    <nav class="jump" id="jump" aria-label="Holidays"></nav>
+  </header>
+
+  <div class="controls">
+    <label>Size <span class="seg" id="zoom"><button type="button" data-v="2">App size</button><button type="button" data-v="3">3×</button><button type="button" data-v="4">4×</button></span></label>
+    <label>Sky <span class="seg" id="sky"><button type="button" data-v="day">Day</button><button type="button" data-v="night">Night</button></span></label>
+    <button type="button" class="btn seg" id="play" aria-pressed="true">Pause</button>
+  </div>
+
+  <div id="holidays" style="display: flex; flex-direction: column; gap: 48px;"></div>
+
+  <div class="notes">
+    <label for="notes">Anything to change?</label>
+    <textarea id="notes" placeholder="For example: Ziggy's bunny ears taller, Frank's vampire cape in black and red, Minnie's witch hat in purple"></textarea>
+  </div>
+</div>
+
+<div class="bar">
+  <div class="bar-in">
+    <div class="chips" id="chips"></div>
+    <button type="button" class="copy" id="copy">Copy picks</button>
+    <textarea id="picks-text" readonly hidden aria-label="Your picks, ready to paste"></textarea>
+  </div>
+</div>
+
+<script>
+/*ENGINE*/
+(() => {
+  const { render, box, SIZE, PAD, LIFT } = Sprites;
+  const HOLIDAYS = [
+    { id: 'easter', name: 'Easter', when: 'the week before Easter Sunday (March 21 to 28 in 2027)' },
+    { id: 'july4', name: 'July 4', when: 'June 27 to July 4' },
+    { id: 'dogday', name: 'National Dog Day', when: 'August 19 to 26. Matching bandanas: pick the same letter for all three' },
+    { id: 'halloween', name: 'Halloween', when: 'October 24 to 31' },
+  ];
+  const DOGS = [
+    { k: 'z', name: 'Ziggy', blurb: 'Hyper and playful.', walk: 52, run: 190 },
+    { k: 'f', name: 'Frank', blurb: 'Grumpy and protective.', walk: 34, run: 90 },
+    { k: 'm', name: 'Minnie', blurb: 'Absent-minded and aloof.', walk: 28, run: 70 },
+  ];
+  const SCRUFF = { z: [49, 17], f: [43, 20], m: [41, 19] }, TILT = { z: 0.35, f: 0.22, m: 0.5 };
+  const tailOf = (k, t) => (k === 'z' ? t * 14 : k === 'f' ? Math.sin(t * 9) * 0.4 : t * 2);
+  const gait = (t, fast, k) => { const ph = t * (fast ? 22 : 11) * (k === 'm' ? 1.1 : 1); return { ph, amp: fast ? 0.75 : 0.45, bob: -Math.abs(Math.sin(ph)) * (fast ? 1.5 : 0.8) }; };
+  const bark = (t, k) => {
+    if (k === 'z') return { mouth: 1, head: -0.22 - 0.08 * (Math.floor(t * 5) % 2), y: -Math.abs(Math.sin(t * 9)) * 4, ear: 0.2 };
+    if (k === 'f') { const m = Math.floor(t * 6) % 2; return { mouth: m, head: -0.14 * m, ear: -0.4, x: m * 1.5 }; }
+    return { head: 0.12, ear: -0.7, snarl: 1 };
+  };
+  const held = (t, k) => (k === 'z' ? { ph: t * 16, amp: 0.55, legF: -0.15, legB: 0.15, mouth: 1, head: -0.12, ear: 0.2 }
+    : k === 'f' ? { legF: 0.55, legB: -0.6, head: 0.1, ear: -0.4 }
+      : { legF: -0.3, legB: 0.35, head: 0.38, eyes: Math.sin(t * 1.3) > 0.8 ? 1 : 0, ear: -0.35 });
+  // The poses each option is shown in. These are the app's own pose values (see ACTS and heldPose in dogs.js).
+  const POSES = [
+    { label: 'Standing', fn: t => ({ head: 0.05 * Math.sin(t * 0.9), eyes: t % 3.7 < 0.12 ? 0 : 1 }) },
+    { label: 'Walking, both ways', flip: 1, fn: (t, k) => gait(t, 0, k) },
+    { label: 'Running', fn: (t, k) => ({ ...gait(t, 1, k), mouth: 1, ear: k === 'z' ? -0.3 : -0.15 }) },
+    { label: 'Sitting, looking up', fn: t => ({ sit: 1, head: -0.15 + 0.23 * Math.sin(t * 0.7) }) },
+    { label: 'Asleep', fn: () => ({ lie: 1, eyes: 0, head: 0.32 }) },
+    { label: 'Head up and down', fn: t => ({ head: 0.06 + 0.44 * Math.sin(t * 1.1) }) },
+    { label: 'Barking', fn: bark },
+    { label: 'Cold day, in his sweater', only: 'f', fn: t => ({ sweater: 1, sit: 1, head: 0.16, ear: -0.35, eyes: Math.sin(t * 0.8) > 0.7 ? 0 : 1 }) },
+    { label: 'Picked up', held: 1, fn: held },
+  ];
+
+  const state = { zoom: innerWidth < 700 ? 2 : 3, sky: 'day', playing: !matchMedia('(prefers-reduced-motion: reduce)').matches, picks: {}, notes: '' };
+  const KEY = 'holiday-outfits-v3';
+  try { const s = JSON.parse(localStorage.getItem(KEY) || '{}'); if (s.picks) state.picks = s.picks; if (s.notes) state.notes = s.notes; } catch (e) { /* storage is optional */ }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ picks: state.picks, notes: state.notes })); } catch (e) { /* storage is optional */ } };
+
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const opts = (h, k) => DESIGNS[h][k];
+  const pk = (h, k) => h + '.' + k;
+  const draw = (k, parts, pose, ctx) => {
+    Sprites.HOOK.stamp = parts && parts.length ? (kk, p, d, mask, w, h, X) => parts.forEach(pt => stampPart(pt, X, d, mask, w, h)) : null;
+    render(k, pose, ctx);
+  };
+  // What the pose-grid clip test found for an option (clip.json, written by build.js).
+  const plural = (n, w) => n + ' ' + w + (n > 1 ? 's' : '');
+  function warning(h, k, id) {
+    const n = NEEDS.designs && NEEDS.designs[h] && NEEDS.designs[h][id];
+    if (!n) return null;
+    const out = [], his = k === 'm' ? 'her' : 'his';
+    const when = n.worst.startsWith('pounce') ? 'his leap in the snow' : 'a hop with ' + his + ' head up';
+    if (n.lift > LIFT[k]) out.push('Needs ' + plural(n.lift - LIFT[k], 'more pixel') + ' of headroom for ' + when + ' (LIFT ' + LIFT[k] + ' to ' + n.lift + ' in sprites.js).');
+    if (n.right > 0) out.push('Reaches ' + plural(n.right, 'pixel') + ' past the right edge of ' + his + ' canvas ' + (n.rightPose === 'pounce landing' ? 'when he lands nose-first in the snow' : 'with ' + his + ' head down') + '; the build would widen it to fit.');
+    return out.length ? out.join(' ') : null;
+  }
+
+  // ----- the sections -----
+  const tiles = [], cards = {}, noneBtns = {}, yards = [];
+  const seen = new IntersectionObserver(es => es.forEach(e => { e.target._seen.visible = e.isIntersecting; }), { rootMargin: '120px' });
+  const host = document.getElementById('holidays'), jump = document.getElementById('jump'), jumpCount = {};
+  for (const hol of HOLIDAYS) {
+    const h = hol.id, sec = el('section', 'holiday'); sec.id = h;
+    const hh = el('div', 'holiday-head'); hh.append(el('h2', '', hol.name), el('p', '', 'Worn ' + hol.when + '.')); sec.append(hh);
+    const a = el('a', '', hol.name); a.href = '#' + h; const small = el('small'); a.append(small); jumpCount[h] = small; jump.append(a);
+
+    // The yard: all three together at app size, wearing your picks (option A until you pick).
+    const yw = el('div', 'yard sky'); yw.append(el('span', 'tag', 'Your ' + hol.name + ' picks together, at app size (option A until you pick)'));
+    sec.append(yw);
+    const yard = { h, el: yw, visible: false, pack: [] };
+    yw._seen = yard; seen.observe(yw); yards.push(yard);
+    DOGS.forEach((def, i) => {
+      const b = box(def.k), cv = el('canvas'); cv.width = b.w; cv.height = b.h; cv.style.width = b.w * 2 + 'px';
+      cv.style.transformOrigin = b.cx * 2 + 'px 0';
+      yw.append(cv);
+      yard.pack.push({ def, b, cv, ctx: cv.getContext('2d'), x: 0, fx: [0.22, 0.72, 0.5][i], dir: i === 1 ? -1 : 1, mode: 'idle', until: 1 + i * 0.8, idle: 0, run: false });
+    });
+
+    for (const dog of DOGS) {
+      const k = dog.k, b = box(k), ds = el('div', 'dog');
+      const head = el('div', 'dog-head'); head.append(el('h3', '', dog.name), el('p', '', dog.blurb)); ds.append(head);
+      opts(h, k).forEach((opt, i) => {
+        const card = el('article', 'opt'), top = el('div', 'opt-head'), text = el('div', 'opt-text');
+        text.append(el('h3', '', opt.name), el('p', '', opt.note));
+        const sw = el('div', 'swatches sky');
+        for (const part of opt.parts) {
+          const c = el('canvas'); c.width = part.rows[0].length; c.height = part.rows.length; c.style.width = c.width * 5 + 'px';
+          const x = c.getContext('2d');
+          part.rows.forEach((row, y) => [...row].forEach((ch, xx) => { if (ch !== '.') { x.fillStyle = part.pal[ch]; x.fillRect(xx, y, 1, 1); } }));
+          c.setAttribute('role', 'img'); c.setAttribute('aria-label', 'The pixel art for ' + opt.name);
+          sw.append(c);
+        }
+        const btn = el('button', 'pick', 'Pick ' + 'ABC'[i]); btn.type = 'button';
+        btn.addEventListener('click', () => choose(h, k, state.picks[pk(h, k)] === opt.id ? null : opt.id));
+        top.append(el('span', 'letter', 'ABC'[i]), text, sw, btn);
+        card.append(top);
+        const w = warning(h, k, opt.id);
+        if (w) card.append(el('p', 'warn', w));
+        const row = el('div', 'tiles');
+        for (const pose of POSES) {
+          if (pose.only && pose.only !== k) continue;
+          const t = el('div', 'tile'), win = el('div', 'win sky' + (pose.held ? ' air' : '')), cv = el('canvas');
+          cv.width = b.w; cv.height = b.h;
+          if (pose.held) cv.style.transformOrigin = (SCRUFF[k][0] * SIZE[k] / b.w * 100).toFixed(1) + '% ' + ((SCRUFF[k][1] + PAD[k]) * SIZE[k] / b.h * 100).toFixed(1) + '%';
+          win.append(cv); t.append(win, el('span', '', pose.label)); row.append(t);
+          const tile = { k, b, cv, win, ctx: cv.getContext('2d'), parts: opt.parts, pose, visible: false };
+          win._seen = tile; seen.observe(win); tiles.push(tile);
+        }
+        card.append(row); ds.append(card);
+        cards[h + '.' + opt.id] = { card, btn, letter: 'ABC'[i], opt };
+      });
+      const none = el('button', 'none', 'None of these for ' + dog.name); none.type = 'button';
+      none.addEventListener('click', () => choose(h, k, state.picks[pk(h, k)] === 'none' ? null : 'none'));
+      noneBtns[pk(h, k)] = none; ds.append(none);
+      sec.append(ds);
+    }
+    host.append(sec);
+  }
+
+  const IDLE = [() => ({ sit: 1, head: 0.05 }), t => ({ head: 0.05 * Math.sin(t) }), () => ({ lie: 1, eyes: 0, head: 0.32 }), () => ({ sit: 1, head: -0.36 })];
+  const worn = (h, k) => { const p = state.picks[pk(h, k)]; return p === 'none' ? [] : (opts(h, k).find(o => o.id === p) || opts(h, k)[0]).parts; };
+  const GROUND = 150 - 16;
+  function stepYard(y, dt, t) {
+    const W = y.el.clientWidth || 600;
+    for (const d of y.pack) {
+      if (!d.x) d.x = d.fx * W;
+      let pose;
+      if (d.mode === 'walk') {
+        d.x += d.dir * (d.run ? d.def.run : d.def.walk) * dt;
+        if ((d.tx - d.x) * d.dir <= 0) { d.mode = 'idle'; d.idle = Math.floor(Math.random() * IDLE.length); d.until = t + 2.5 + Math.random() * 3; }
+        pose = { ...gait(t, d.run, d.def.k), ...(d.run ? { mouth: 1, ear: -0.3 } : {}) };
+      } else {
+        if (t > d.until) { d.tx = 40 + Math.random() * Math.max(60, W - 80); d.dir = d.tx > d.x ? 1 : -1; d.mode = 'walk'; d.run = d.def.k === 'z' && Math.random() < 0.4; }
+        pose = IDLE[d.idle](t);
+      }
+      d.x = Math.min(W - 20, Math.max(20, d.x));
+      draw(d.def.k, worn(y.h, d.def.k), { t, tail: tailOf(d.def.k, t), ...pose }, d.ctx);
+      d.cv.style.transform = 'translate(' + Math.round(d.x - d.b.cx * 2) + 'px,' + (GROUND - d.b.footY * 2) + 'px) scaleX(' + d.dir + ')';
+    }
+  }
+
+  // ----- controls and picks -----
+  function seg(id, key, after) {
+    const box_ = document.getElementById(id);
+    const sync = () => box_.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === String(state[key]))));
+    box_.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; state[key] = isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v; sync(); after(); });
+    sync(); after();
+  }
+  function size() {
+    for (const t of tiles) {
+      const w = t.b.w * state.zoom, h = t.b.h * state.zoom;
+      t.cv.style.width = w + 'px';
+      t.win.style.width = w + 'px';
+      t.win.style.height = (t.pose.held ? h * 1.12 : h) + 'px';
+      t.win.style.setProperty('--gh', (t.b.h - t.b.footY) * state.zoom + 'px');
+      t.cv.style.marginTop = t.pose.held ? -h * 0.1 + 'px' : '0';
+    }
+  }
+  seg('zoom', 'zoom', size);
+  seg('sky', 'sky', () => { document.getElementById('root').dataset.sky = state.sky; });
+  const play = document.getElementById('play');
+  const syncPlay = () => { play.textContent = state.playing ? 'Pause' : 'Play'; play.setAttribute('aria-pressed', String(state.playing)); };
+  play.addEventListener('click', () => { state.playing = !state.playing; syncPlay(); }); syncPlay();
+
+  const chips = document.getElementById('chips'), out = document.getElementById('picks-text');
+  const label = (h, k) => { const p = state.picks[pk(h, k)]; return !p ? null : p === 'none' ? 'none of these' : cards[h + '.' + p].letter + ' (' + cards[h + '.' + p].opt.name + ')'; };
+  const count = h => DOGS.filter(d => state.picks[pk(h, d.k)]).length;
+  const summary = () => 'Round 3 picks: ' + HOLIDAYS.map(hol => hol.name + ': ' + DOGS.map(d => d.name + ' = ' + (label(hol.id, d.k) || 'not picked yet')).join(', ')).join('; ') + '.' + (state.notes.trim() ? ' Changes: ' + state.notes.trim() : '');
+  function choose(h, k, id) { if (id) state.picks[pk(h, k)] = id; else delete state.picks[pk(h, k)]; save(); syncPicks(); dirty = true; }
+  function syncPicks() {
+    for (const hol of HOLIDAYS) for (const d of DOGS) {
+      const h = hol.id, p = state.picks[pk(h, d.k)];
+      for (const o of opts(h, d.k)) {
+        const c = cards[h + '.' + o.id], on = p === o.id;
+        c.card.classList.toggle('picked', on); c.btn.textContent = on ? 'Picked ' + c.letter : 'Pick ' + c.letter; c.btn.setAttribute('aria-pressed', String(on));
+      }
+      noneBtns[pk(h, d.k)].setAttribute('aria-pressed', String(p === 'none'));
+    }
+    chips.replaceChildren(...HOLIDAYS.map(hol => {
+      const n = count(hol.id), c = el('a', 'chip' + (n === 3 ? ' set' : ''), hol.name + ' ' + n + '/3'); c.href = '#' + hol.id; return c;
+    }));
+    for (const hol of HOLIDAYS) jumpCount[hol.id].textContent = count(hol.id) + '/3 picked';
+    if (!out.hidden) out.value = summary();
+  }
+  const notes = document.getElementById('notes'); notes.value = state.notes;
+  notes.addEventListener('input', () => { state.notes = notes.value; save(); if (!out.hidden) out.value = summary(); });
+  const copy = document.getElementById('copy');
+  copy.addEventListener('click', () => {
+    const text = summary(), show = () => { out.hidden = false; out.value = text; out.focus(); out.select(); copy.textContent = 'Select and copy'; };
+    try { navigator.clipboard.writeText(text).then(() => { copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy picks'; }, 1600); }, show); } catch (e) { show(); }
+  });
+  syncPicks();
+
+  // ----- the loop -----
+  let clock = 0.37, last = 0, dirty = true;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (now - last < 33) return;
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    if (!state.playing && !dirty) return;
+    if (state.playing) clock += dt;
+    for (const t of tiles) {
+      if (!t.visible && !dirty) continue;
+      draw(t.k, t.parts, { t: clock, tail: tailOf(t.k, clock), ...t.pose.fn(clock, t.k) }, t.ctx);
+      if (t.pose.flip) t.cv.style.transform = Math.floor(clock / 4) % 2 ? 'scaleX(-1)' : '';
+      if (t.pose.held) t.cv.style.transform = 'rotate(' + (-TILT[t.k] + 0.2 * Math.sin(clock * 2.4)).toFixed(3) + 'rad)';
+    }
+    for (const y of yards) if (y.visible || dirty) stepYard(y, state.playing ? dt : 0, clock);
+    dirty = false;
+  }
+  requestAnimationFrame(frame);
+})();
+</script>

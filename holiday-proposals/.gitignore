@@ -1,0 +1,9 @@
+# Built by build.js from the *.tpl.html templates; rebuild with `node build.js`.
+clip.html
+dump.html
+gallery.html
+measure.html
+sheet.html
+clip.json
+# Screenshots from shot.sh and crops.sh.
+shots/

@@ -1,0 +1,22 @@
+<!doctype html><meta charset="utf-8"><pre id="out"></pre><script>
+/*ENGINE*/
+// How much headroom (PAD, in unscaled units) each design needs so nothing is clipped at the top of the canvas.
+const { render, box, SIZE, PAD } = Sprites;
+const POSES = { sitUp: { sit: 1, head: -0.38 }, catch: { y: -7, head: -0.3 }, happy: { y: -4, head: -0.3 }, stand: {}, bark: { head: -0.14 } };
+let txt = '';
+for (const k of 'zfm') for (const opt of [{ id: k + ' bare', parts: [] }, ...DESIGNS.thanksgiving[k]]) {
+  const b = box(k), cv = document.createElement('canvas'); cv.width = b.w; cv.height = b.h; const ctx = cv.getContext('2d', { willReadFrequently: true });
+  Sprites.HOOK.stamp = (kk, p, d, mask, w, h, X) => opt.parts.forEach(pt => stampPart(pt, X, d, mask, w, h));
+  let need = 0, worst = '', side = 0;
+  for (const [name, pose] of Object.entries(POSES)) {
+    render(k, { t: 0, tail: 0, ...pose }, ctx);
+    const d = ctx.getImageData(0, 0, b.w, b.h).data; let top = b.h, right = 0;
+    for (let y = 0; y < b.h; y++) for (let x = 0; x < b.w; x++) if (d[(y * b.w + x) * 4 + 3]) { top = Math.min(top, y); right = Math.max(right, x); }
+    const n = PAD[k] - top / SIZE[k];
+    if (n > need) { need = n; worst = name; }
+    side = Math.max(side, right);
+  }
+  txt += `${opt.id.padEnd(8)} needs PAD >= ${need.toFixed(1)} (worst: ${worst}); rightmost px ${side} of ${b.w - 1}\n`;
+}
+document.getElementById('out').textContent = txt;
+</script>

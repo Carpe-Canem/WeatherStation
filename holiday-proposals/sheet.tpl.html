@@ -1,0 +1,29 @@
+<!doctype html><meta charset="utf-8"><style>body{margin:0;background:#9ed3f0;font:12px sans-serif}canvas{image-rendering:pixelated;display:block}td{padding:2px 4px;vertical-align:bottom}td.n{background:#101a33}</style><table id="t"></table><script>
+/*ENGINE*/
+const { render, box } = Sprites, q = new URLSearchParams(location.search), Z = +q.get('zoom') || 5, T = +q.get('t') || 0.37;
+const only = q.get('dog');
+const gait = (t, fast, k) => { const ph = t * (fast ? 22 : 11) * (k === 'm' ? 1.1 : 1); return { ph, amp: fast ? 0.75 : 0.45, bob: -Math.abs(Math.sin(ph)) * (fast ? 1.5 : 0.8) }; };
+const POSES = [
+  ['stand', () => ({})], ['walk', (t, k) => gait(t, 0, k)], ['run', (t, k) => ({ ...gait(t, 1, k), mouth: 1, ear: -0.3 })],
+  ['sit', () => ({ sit: 1, head: 0.05 })], ['nap', () => ({ lie: 1, eyes: 0, head: 0.32 })], ['up', () => ({ sit: 1, head: -0.38 })],
+  ['sniff', () => ({ head: 0.5 })], ['sweater', (t, k) => ({ sweater: 1, sit: 1, head: 0.16 })], ['bark', () => ({ mouth: 1, head: -0.14 })],
+  ['held', (t, k) => k === 'z' ? { ph: t * 16, amp: 0.55, legF: -0.15, legB: 0.15, mouth: 1, head: -0.12, ear: 0.2 } : k === 'f' ? { legF: 0.55, legB: -0.6, head: 0.1, ear: -0.4 } : { legF: -0.3, legB: 0.35, head: 0.38, ear: -0.35 }],
+];
+const TILT = { z: 0.35, f: 0.22, m: 0.5 };
+const tb = document.getElementById('t');
+const cols = (q.get('poses') || '').split(',').filter(Boolean);
+for (const k of 'zfm') {
+  if (only && only !== k) continue;
+  for (const opt of [{ id: k + ' bare', parts: [] }, ...DESIGNS[q.get('h') || 'thanksgiving'][k]]) {
+    const tr = tb.insertRow(); tr.insertCell().textContent = opt.id;
+    POSES.forEach(([name, fn], i) => {
+      if (cols.length && !cols.includes(name)) return;
+      const b = box(k), cv = document.createElement('canvas'); cv.width = b.w; cv.height = b.h; cv.style.width = b.w * Z + 'px';
+      Sprites.HOOK.stamp = (kk, p, d, mask, w, h, X) => opt.parts.forEach(pt => stampPart(pt, X, d, mask, w, h));
+      render(k, { t: T, tail: 0, ...fn(T, k) }, cv.getContext('2d'));
+      if (name === 'held') cv.style.transform = `rotate(${-TILT[k]}rad)`;
+      const td = tr.insertCell(); if (q.get('crop')) { const [cx, cy, cw, ch] = q.get('crop').split(',').map(Number), dv = document.createElement('div'); dv.style.cssText = 'overflow:hidden;width:' + cw * b.w * Z + 'px;height:' + ch * b.h * Z + 'px'; cv.style.margin = -cy * b.h * Z + 'px 0 0 ' + -cx * b.w * Z + 'px'; dv.appendChild(cv); td.appendChild(dv); } else td.appendChild(cv); if (i % 2) td.className = 'n';
+    });
+  }
+}
+</script>

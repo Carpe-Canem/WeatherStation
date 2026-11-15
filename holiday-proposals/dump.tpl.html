@@ -1,0 +1,41 @@
+<!doctype html><meta charset="utf-8"><pre id="out"></pre><script>
+/*ENGINE*/
+const { render, box, PAL, XF, PAD } = Sprites;
+const POSES = { stand: {}, sit: { sit: 1 }, lie: { lie: 1, head: 0.32 }, up: { sit: 1, head: -0.38 }, down: { head: 0.5 } };
+const KEY = { z: { pivot: [50, 18], top: [55, 6], ear: [53.6, 4.3], eye: [57.2, 10.3], nose: [66.9, 12.4], neck: [48, 20] },
+  f: { pivot: [44, 22], top: [50, 7.5], ear: [52, 1.4], eye: [54.2, 12], nose: [60.8, 12.4], neck: [44, 22] },
+  m: { pivot: [42, 22], top: [48, 7.4], ear: [45.6, 0.8], eye: [50.2, 10.6], nose: [57.8, 13.4], neck: [43.5, 20] } };
+const want = new URLSearchParams(location.search);
+const sel = (want.get('opt') || '').split(',');
+let txt = '';
+for (const k of 'zfm') {
+  const b = box(k), cv = document.createElement('canvas'); cv.width = b.w; cv.height = b.h;
+  const ctx = cv.getContext('2d');
+  const pal = PAL[k].map(h => h.toLowerCase());
+  for (const [name, pose] of Object.entries(POSES)) {
+    if (want.get('pose') && !want.get('pose').split(',').includes(name)) continue;
+    Sprites.HOOK.stamp = null;
+    const parts = (typeof DESIGNS !== 'undefined' && DESIGNS[want.get('h') || 'thanksgiving']?.[k]?.find(o => sel.includes(o.id))?.parts) || null;
+    if (parts) Sprites.HOOK.stamp = (kk, p, d, mask, w, h, X) => parts.forEach(pt => stampPart(pt, X, d, mask, w, h));
+    render(k, { t: 0, tail: 0, ...pose }, ctx);
+    const d = ctx.getImageData(0, 0, b.w, b.h).data;
+    txt += `\n== ${k} ${name}  box ${b.w}x${b.h} footY ${b.footY}  `;
+    for (const [n, pt] of Object.entries(KEY[k])) { const q = XF.head.transformPoint({ x: pt[0], y: pt[1] }); txt += `${n}(${q.x.toFixed(1)},${q.y.toFixed(1)}) `; }
+    txt += `rot ${Math.atan2(XF.head.b, XF.head.a).toFixed(2)}\n    `;
+    for (let x = 0; x < b.w; x++) txt += x % 10 === 0 ? (x / 10) % 10 : ' ';
+    txt += '\n    '; for (let x = 0; x < b.w; x++) txt += x % 10; txt += '\n';
+    for (let y = 0; y < b.h; y++) {
+      let row = '';
+      for (let x = 0; x < b.w; x++) {
+        const j = (y * b.w + x) * 4;
+        if (!d[j + 3]) { row += '.'; continue; }
+        const hex = '#' + [d[j], d[j + 1], d[j + 2]].map(v => v.toString(16).padStart(2, '0')).join('');
+        const n = pal.indexOf(hex);
+        row += hex === '#141012' ? '#' : n >= 0 ? n.toString(36) : '*';
+      }
+      if (/[^.]/.test(row)) txt += String(y).padStart(3) + ' ' + row + '\n';
+    }
+  }
+}
+document.getElementById('out').textContent = txt;
+</script>
