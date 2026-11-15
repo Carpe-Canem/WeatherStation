@@ -8,7 +8,8 @@
 // ?dogact=ball throws a tennis ball every few seconds; ?dogscene=howl|pile|tug|steal|rumble|stretch|treat
 // starts that scene (see "scenes" below) a couple of seconds in, then again every 25 seconds or so
 // (holiday scenes too: drumstick|coma|gift|sleigh|fireworks|confetti|rose|rainbow|egg|bunny|hotdog|
-// fireworks4|bone|dogpile|ghost|pumpkin; and the fall leaf pile: leafpile);
+// fireworks4|bone|dogpile|ghost|pumpkin; and the fall leaf pile: leafpile); with frozen puddles
+// (?preview=ice, or ?ice) ?dogact=iceslide has them all slide;
 // ?holiday=thanksgiving dresses them for that holiday whatever the date (ids in holidays.js), ?holiday=none
 // leaves them undressed; ?dogact=quip has them say their holiday lines.
 
@@ -233,7 +234,9 @@ function onNip(z, m) {
   if (f.actName !== 'rescue') setTimeout(() => interrupt(f, 'rescue'), 450 / SPEED);
 }
 
-/** Frank won't stand on hot pavement and Minnie won't set foot in snow, if there is anywhere else to be. */
+/** Snow underfoot: falling, or lying on the lawn after a fall (see conditions.js). */
+const snowyGround = () => !!k && (k.snowing || k.snowLying >= 0.3);
+/** Frank won't stand on hot pavement and Minnie won't set foot in falling snow, if there is anywhere else to be. */
 const avoidsGround = d => !!k && ((d.def.k === 'f' && k.hotGround) || (d.def.k === 'm' && k.snowing)) && curS.size > 1;
 
 function needGround(d, act) {
@@ -286,6 +289,8 @@ function weights(d) {
   } else if (k.cold) z ? add({ dig: 0.5 }) : m ? add({ curl: 3 }) : 0;
   // A frosty morning: zoomies, breath puffing.
   if (k.frost && !k.night) z ? add({ zoomies: 3 }) : m ? add({ zoomies: 0.5 }) : 0;
+  // Frozen puddles: Ziggy can't keep off them; the others try one, in their own way.
+  if (k.ice && !k.night) z ? add({ iceslide: 3 }) : f ? add({ iceslide: 0.7 }) : add({ iceslide: 0.9 });
   if (k.fog) { add({ sniff: 6 }); w.hop *= 0.3; }
   if (k.hot) {
     z ? add({ sploot: 5, drink: bowl ? 2.5 : 0 }) : f ? add({ lie: 3, sploot: 2 }) : add({ shade: 4, drink: bowl ? 1.5 : 0 });
@@ -743,7 +748,7 @@ function land(d, { key, s }, x) {
 /** Dust (or a splash, or snow) kicked up where a dog lands. */
 function puff(x, y, drop, ground, cls) {
   const el = document.createElement('span');
-  el.className = `puff ${cls || ((k.rain || k.puddles) && ground ? 'wet' : k.snowing ? 'snow' : '')}`;
+  el.className = `puff ${cls || ((k.rain || k.puddles) && ground ? 'wet' : snowyGround() ? 'snow' : '')}`;
   const n = drop > 200 ? 6 : 4;
   el.innerHTML = Array.from({ length: n }, (_, i) => `<i style="--dx:${(i % 2 ? 1 : -1) * (12 + (i >> 1) * 9)}px;--dy:${-(3 + (i % 3) * 5)}px"></i>`).join('');
   el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
@@ -921,16 +926,17 @@ function fliesStep(dt) {
   }
 }
 
-// Paw prints behind a dog walking in snow or across a frosty lawn; they fade after a few seconds.
+// Paw prints behind a dog walking in snow (falling, or still lying after a fall) or across a frosty lawn;
+// they fade after a few seconds.
 function printsStep() {
-  if (still || !(k.snowing || k.frost)) return;
+  if (still || !(snowyGround() || k.frost)) return;
   const gy = groundY();
   for (const d of dogs) {
     if (d.surf !== 'ground' || d.jump || !free(d) || !d.walking) { d.lastPrint = null; continue; }
     if (d.lastPrint != null && Math.abs(d.sx - d.lastPrint) < 13) continue;
     d.lastPrint = d.sx;
     d.printSide = -(d.printSide || 1);
-    const e = prop(`print ${k.snowing ? 'snow' : 'frost'}`);
+    const e = prop(`print ${snowyGround() ? 'snow' : 'frost'}`);
     e.style.transform = `translate(${Math.round(d.sx + d.printSide * 4)}px, ${Math.round(gy - 3 + (d.printSide > 0 ? 1 : 0))}px)`;
     e.addEventListener('animationend', () => e.remove());
     const all = root.querySelectorAll('.print');
@@ -974,6 +980,74 @@ function ropeStep() {
 }
 
 // ---------- weather and time-of-day activities ----------
+
+// Frozen puddles (k.ice; sky.js draws them): Ziggy, gleeful, slides back and forth two or three times,
+// legs splayed; Frank's feet scrabble and go out from under him, and he sits there put out; Minnie
+// tiptoes up and glides across, nose in the air, then walks off as if she meant it.
+const ICE_LINES = {
+  z: { pre: 'ICE RINK!!', go: 'WHEEE!!', post: 'AGAIN!!', mood: 'happy' },
+  f: { pre: 'careful…', go: 'whoa—', post: 'who did this' },
+  m: { pre: 'tippy toes.', go: '…', post: 'how graceful' },
+};
+// Run-up and overshoot past the far edge (screen px), and how long the slide takes (s).
+const ICE = { z: { runup: 70, over: 34, slide: 1.2 }, f: { runup: 34, over: 8, slide: 1.1 }, m: { runup: 26, over: 14, slide: 1.7 } };
+/** Whether a slide across puddle s in direction s.dir starts and ends on screen. */
+function iceFits(s, who) {
+  const C = ICE[who], a = s.cx - s.dir * (s.half + C.runup), b = s.cx + s.dir * (s.half + C.over);
+  return Math.min(a, b) > 36 && Math.max(a, b) < innerWidth - 36;
+}
+function iceStep(d, t) {
+  const s = d.ice, who = d.def.k, C = ICE[who], L = ICE_LINES[who];
+  const end = () => { d.actT = d.act.dur; return {}; };
+  if (!s || d.jump) return {};
+  if (s.step === 'go') { // to the run-up spot
+    const fx = (s.cx - s.dir * (s.half + C.runup)) / innerWidth;
+    if (Math.abs(fx - d.fx) > 0.006) { if (!d.move) walkTo(d, fx); return who === 'z' ? { mouth: 1 } : {}; }
+    d.move = null; d.facing = s.dir; s.step = 'ready'; s.t0 = clock;
+    if (!s.pass) say(d, L.pre, 1.6, L.mood);
+  }
+  if (s.step === 'ready') { // Ziggy wiggles; Frank eyes the ice; Minnie lifts her nose
+    if (clock - s.t0 < (who === 'z' ? 0.6 : 1.4)) return who === 'z' ? { bow: 0.22, mouth: 1, ear: -0.25 } : who === 'f' ? { head: 0.4, ear: -0.2 } : { head: -0.25, eyes: 0 };
+    s.step = 'run';
+    walkTo(d, (s.cx - s.dir * s.half) / innerWidth);
+    d.slow = who === 'm' ? 0.6 : 1; // she tiptoes
+  }
+  if (s.step === 'run') { // up to the edge of the ice
+    if (d.move) return who === 'z' ? { mouth: 1, ear: -0.35 } : who === 'm' ? { head: -0.2 } : {};
+    s.step = 'slide'; s.t0 = clock; s.x0 = d.sx;
+    say(d, L.go, 1.4, L.mood);
+  }
+  if (s.step === 'slide') { // no steps: the feet stay put and the ice does the rest, slowing as it goes
+    const u = Math.min(1, (clock - s.t0) / C.slide), e = 1 - (1 - u) * (1 - u);
+    d.fx = clamp((s.x0 + s.dir * (2 * s.half + C.over) * e) / innerWidth, 0.01, 0.99);
+    d.facing = s.dir;
+    if (u < 1) {
+      if (who === 'z') return { legF: 0.7, legB: -0.7, mouth: 1, ear: -0.5, head: -0.15 };
+      if (who === 'm') return { legF: 0.25, legB: -0.25, head: -0.3, eyes: 0, ear: 0.1 };
+      if (u < 0.55) return { ph: t * 40, amp: 0.8, ear: -0.4, head: 0.1 }; // Frank scrabbling…
+      if (!s.sat) { s.sat = 1; puff(d.sx, groundY(), 100, true, 'snow'); } // …and down he goes
+      return { sit: 1, ear: -0.45, head: 0.05 };
+    }
+    s.step = 'after'; s.t0 = clock; s.pass++;
+    if (who !== 'z' || s.pass >= s.passes) say(d, L.post, 2.2, L.mood);
+    if (who === 'z' && s.pass === 1) iceReactions();
+  }
+  const a = clock - s.t0;
+  if (who === 'z') {
+    if (a < 0.9) return { y: -Math.abs(Math.sin(t * 9)) * 4, mouth: 1, head: -0.25, ear: 0.2 };
+    if (s.pass < s.passes) { s.dir = -s.dir; if (iceFits(s, 'z')) { s.step = 'go'; return {}; } }
+    return end();
+  }
+  if (who === 'f') { if (a > 2.4) { d.queue = ['grumble']; return end(); } return { sit: 1, head: 0.12, ear: -0.35 }; }
+  if (a > 1.8) { d.dropX = s.cx; d.queue = ['walkoff']; return end(); }
+  return { sit: 1, head: -0.32, eyes: 0 };
+}
+// What the others make of Ziggy on the ice.
+function iceReactions() {
+  const [, f, m] = dogs, idle = o => free(o) && onScreen(o) && !SCENE_ACTS.has(o.actName) && o.actName !== 'iceslide';
+  later(1, () => { if (idle(f)) { interrupt(f, 'ignore'); say(f, 'show-off.', 1.6); } });
+  later(2, () => { if (idle(m)) say(m, 'how common.', 1.6); });
+}
 
 Object.assign(ACTS, {
   // Minnie at the edge of her tile, peering down at the snow (or Frank at the hot pavement): no.
@@ -1057,6 +1131,19 @@ Object.assign(ACTS, {
         return {};
       },
     };
+  },
+  // Frozen puddles: a run-up and a slide across one (see iceStep).
+  iceslide: d => {
+    const g = needGround(d, 'iceslide');
+    if (g) return g;
+    const who = d.def.k;
+    const i = who === 'z' ? Math.floor(Math.random() * PUDDLES.length) : PUDDLE_FX.reduce((b, p, j) => (Math.abs(p - d.fx) < Math.abs(PUDDLE_FX[b] - d.fx) ? j : b), 0);
+    const s = { cx: PUDDLE_FX[i] * innerWidth, half: (PUDDLES[i][1] / 2) * (innerWidth / SKY_W), step: 'go', pass: 0, passes: who === 'z' ? 2 + Math.floor(Math.random() * 2) : 1 };
+    s.dir = (d.sx ?? 0) < s.cx ? 1 : -1;
+    if (!iceFits(s, who)) s.dir = -s.dir;
+    if (!iceFits(s, who)) return { dur: 1 };
+    d.ice = s;
+    return { dur: 40, run: who === 'z' ? 1 : 0, pose: (dd, u, t) => iceStep(dd, t) };
   },
   // Ziggy after the leaves: runs one down and snaps; sometimes he gets it.
   leafchase: d => needGround(d, 'leafchase') || {

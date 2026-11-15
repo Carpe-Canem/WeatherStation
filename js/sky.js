@@ -3,10 +3,14 @@
 // The hills, lawn and tree follow the time of year (seasons.js): dormant tan in winter, blossom and bright
 // green in spring, deep green in summer, and in fall a patchwork of ochre and rust while the tree turns and
 // drops its leaves into a pile on the lawn (the dogs dive into it: see dogs.js) and geese fly over.
-// Weather draws over the season: snow and frost still cover everything.
+// Weather draws over the season: snow and frost still cover everything. In winter there are more stars
+// and smoke rises from the chimney of the little house on the far hill. After a snowfall the snow lies
+// for days, melting away in patches, with a snowman on the lawn; puddles freeze on icy days after rain
+// (conditions.js keeps track of both: k.snowLying, k.snowman, k.ice).
 // Drawn at a low resolution and scaled up with crisp pixels. Frame rate drops when nothing moves fast.
 //
-// Debug: ?season= and ?seasonat= (seasons.js); ?geese brings the geese over every 40 s or so.
+// Debug: ?season= and ?seasonat= (seasons.js); ?geese brings the geese over every 40 s or so;
+// ?snowlying=0..1 and ?ice (conditions.js), or the Settings previews "After snow" and "Icy puddles".
 
 import { seasonNow, yearly, ramp, mix } from './seasons.js';
 
@@ -112,6 +116,53 @@ const BRANCHES = [
   [6, -6], [7, -7], [8, -8], [9, -9], [10, -10], [10, -11], [7, -10], [7, -11], [8, -12],
   [6, -13], [7, -14], [7, -15], [3, -15], [2, -16], [2, -17],
 ].map(([x, y]) => ({ x, y }));
+// ---------- winter ----------
+// (Their own random numbers, so the clouds, fields and canopy above stay as they were.)
+const r2 = rand(1013);
+const winterStars = Array.from({ length: 50 }, () => [r2(), r2() * 0.7, r2()]);
+/** How wintry the season day is, 0 to 1: in through late November and December, out by mid-March. */
+const wintry = day => Math.max(ramp(day, 318, 345), 1 - ramp(day, 50, 75));
+/** A fixed 0-1 value per pixel, in blobs: where lying snow melts first (low) and last (high). */
+const hash = (x, y) => {
+  let h = Math.imul(x, 374761393) + Math.imul(y, 668265263) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+/** Smooth noise: hash values on a grid, blended between corners. */
+const smooth = (x, y) => {
+  const xi = Math.floor(x), yi = Math.floor(y), u = x - xi, v = y - yi, su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v);
+  const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+  return a + (b - a) * su + (c - a) * sv + (a - b - c + d) * su * sv;
+};
+const meltAt = (x, y) => 0.6 * smooth(x / 7, y / 3.5) + 0.3 * smooth(x / 3 + 50, y / 2 + 50) + 0.1 * hash(x, y + 5003);
+const SNOW = '#f2f6fb';
+// The house on the far hill, sitting on its flat top at columns 72-78. Roof 'r' takes the snow; 'y' is
+// the window, lit at night.
+const HOUSE = ['.....c.', '..rrrc.', '.rrrrr.', 'rrrrrrr', '.wwwww.', '.wywdw.', '.wwwdw.'];
+const HOUSE_X = 72, HOUSE_COLS = { c: '#6e5a50', r: '#8e3b2e', w: '#d9c8a8', d: '#6b4a2b', y: '#8aa2b8' };
+// The snowman, on the lawn between the tree's side and the first-but-one puddle (columns 41-51).
+// Rows 0-6 head and hat, 7-11 middle, 12-16 base; as the snow melts he slumps, then sinks to a lump.
+const SNOWMAN = [
+  '....kkk....',
+  '....kkk....',
+  '...kkkkk...',
+  '....www....',
+  '...wkwks...',
+  '...wwwoo...',
+  '....wss....',
+  '...rrrrrr..',
+  '.b.wwwwsr.b',
+  '..bwwkwssb.',
+  '...wwwwss..',
+  '....wwss...',
+  '..wwwwwwss.',
+  '.wwwwkwwwss',
+  '.wwwwwwwwss',
+  '.wwwwkwwwss',
+  '..wwwwwwss.',
+];
+const SNOWMAN_X = 41, SNOWMAN_COLS = { w: '#f4f7fb', s: '#c9d6e6', k: '#2a2a33', o: '#f08a24', r: '#d23b3b', b: '#6b4a2b' };
+
 let falling = [], nextDrop = 0, geese = null, nextGeese = null, scatteredAt = -Infinity;
 const REGROW = 6 * 60e3; // ms for a scattered pile to build back up, at normal speed
 
@@ -177,6 +228,13 @@ function draw(t) {
       ctx.fillStyle = (Math.sin(t * 1.5 + tw * 20) > 0.6) ? '#fff6c8' : '#9aa6d8';
       ctx.fillRect(Math.floor(x * W), Math.floor(y * horizon), 1, 1);
     }
+    // Long, clear winter nights: half as many again, fainter, the odd one twinkling.
+    const extra = Math.round(winterStars.length * wintry(day));
+    for (let i = 0; i < extra; i++) {
+      const [x, y, tw] = winterStars[i];
+      ctx.fillStyle = tw > 0.8 && Math.sin(t * 1.1 + tw * 30) > 0.7 ? '#e8ecff' : tw > 0.4 ? '#6f7cb0' : '#525e92';
+      ctx.fillRect(Math.floor(x * W), Math.floor(y * horizon), 1, 1);
+    }
   }
   // Sun or moon, hidden behind thick cloud. The sun rides lower in winter, the moon higher.
   if (over < 0.7) {
@@ -203,18 +261,29 @@ function draw(t) {
   }
 
   // Hills, a tree, and the lawn the dogs walk on, in the season's colours.
-  // Frost whitens the land a little; falling snow covers it.
-  const cover = k.snowing ? 0.78 : k.frost ? 0.55 : 0, white = k.snowing ? '#f2f6fb' : '#e8f1f6';
+  // Frost whitens the land a little; falling snow covers it, and so does fresh snow lying after a fall.
+  // As lying snow melts, the ground shows through in patches, the far hill keeping its snow longest.
+  const lying = k.snowLying || 0, full = k.snowing || lying >= 0.85;
+  const cover = full ? 0.78 : k.frost ? 0.55 : 0, white = full ? SNOW : '#e8f1f6';
+  const patches = !full && lying > 0.04 ? lying * 1.15 : 0; // melt values under this are still snow
   const land = c => { c = shade(c, ph); return cover ? mix(c, white, cover) : c; };
+  const snowOn = c => mix(shade(c, ph), SNOW, 0.8);
   const [d1, d2, dg, patchy] = LAND(day);
   const hill = base => [-1, ...PATCH.keys()].map(p => land(p < 0 || !patchy ? base : mix(base, PATCH[p], patchy * 0.65)));
   const c1 = hill(d1), c2 = hill(d2), grass = land(dg);
+  const tops = [];
   for (let x = 0; x < W; x++) {
     const a = Math.round(10 + 5 * Math.sin(x / 13 + 1) + 3 * Math.sin(x / 5));
     const b = Math.round(5 + 4 * Math.sin(x / 9 + 3) + 2 * Math.sin(x / 4));
     hillColumn(x, horizon + 18 - a, fields1, c1, patchy);
     hillColumn(x, horizon + 26 - b, fields2, c2, patchy);
+    tops.push([horizon + 18 - a, horizon + 26 - b]);
   }
+  if (patches) {
+    snowPatches(x => tops[x][0], x => tops[x][1], horizon, patches + 0.08, snowOn(d1));
+    snowPatches(x => tops[x][1], () => ground, horizon, patches, snowOn(d2));
+  }
+  drawHouse(t, day, horizon, ph, land, full || lying >= 0.3, snowOn);
   const sway = k.windy ? Math.round(Math.sin(t * 6)) : 0;
   const tx = 14, ty = horizon + 12;
   const bark = night ? '#2a1d14' : '#6b4a2b';
@@ -223,7 +292,7 @@ function draw(t) {
   for (const p of BRANCHES) {
     const x = tx + p.x + (p.y < -8 ? sway : 0), y = ty + p.y;
     ctx.fillStyle = bark; ctx.fillRect(x, y, 1, 1);
-    if (k.snowing && density < 0.5) { ctx.fillStyle = land('#ffffff'); ctx.fillRect(x, y - 1, 1, 1); }
+    if ((k.snowing || lying >= 0.4) && density < 0.5) { ctx.fillStyle = snowOn('#ffffff'); ctx.fillRect(x, y - 1, 1, 1); }
   }
   const leafCol = p => {
     const c = TREE(day + p.turn)[0];
@@ -237,6 +306,13 @@ function draw(t) {
   ctx.fillStyle = grass; ctx.fillRect(0, ground, W, H - ground);
   ctx.fillStyle = mix(grass, '#ffffff', 0.18);
   for (let x = (Math.floor(t) % 2); x < W; x += 4) ctx.fillRect(x, ground, 1, 1);
+  if (patches) snowPatches(() => ground, () => H, horizon, patches, snowOn(dg));
+  // Lying snow banks up a little along the lawn's edge.
+  if (lying > 0.3) {
+    ctx.fillStyle = snowOn(dg);
+    for (let x = 0; x < W; x++) if (meltAt(x, -40) < lying - 0.2) ctx.fillRect(x, ground - 1, 1, 1);
+  }
+  if (k.snowman) drawSnowman(lying, ph);
 
   drawPile(land);
   // Fall: leaves let go of the tree and drift down, wind or no wind, in the tree's own colours.
@@ -261,6 +337,13 @@ function draw(t) {
   if (k.puddles) {
     ctx.fillStyle = night ? '#2c4a7a' : '#7fb3e0';
     PUDDLES.forEach(([x, w]) => { ctx.fillRect(x, ground - 1, w, 1); ctx.fillRect(x + 1, ground - 2, w - 2, 1); });
+  } else if (k.ice) {
+    // Frozen over: pale and milky, a glint that comes and goes.
+    PUDDLES.forEach(([x, w], i) => {
+      ctx.fillStyle = night ? '#5a7298' : '#bcdcef'; ctx.fillRect(x, ground - 1, w, 1);
+      ctx.fillStyle = night ? '#7088ad' : '#e2f1fa'; ctx.fillRect(x + 1, ground - 2, w - 2, 1);
+      if (Math.sin(t * 0.9 + i * 2.1) > 0.2) { ctx.fillStyle = night ? '#a9bde0' : '#ffffff'; ctx.fillRect(x + 2 + ((i * 5) % (w - 4)), ground - 2, 1, 1); }
+    });
   }
   if (k.fog) {
     ctx.fillStyle = night ? 'rgba(160,170,200,0.18)' : 'rgba(255,255,255,0.32)';
@@ -305,6 +388,63 @@ function drawPile(land) {
       ctx.fillStyle = cols[Math.abs(hsh) % cols.length];
       ctx.fillRect(left + i, ground - 1 - j, 1, 1);
     }
+  }
+}
+
+/** Lying snow, partly melted: in each column from from(x) to to(x), the pixels whose melt value is under thr. */
+function snowPatches(from, to, horizon, thr, col) {
+  ctx.fillStyle = col;
+  for (let x = 0; x < W; x++) {
+    const y1 = to(x);
+    let run = -1;
+    for (let y = from(x); y <= y1; y++) {
+      const on = y < y1 && meltAt(x, y - horizon) < thr;
+      if (on && run < 0) run = y;
+      else if (!on && run >= 0) { ctx.fillRect(x, run, 1, y - run); run = -1; }
+    }
+  }
+}
+
+// The little house on the far hill: snow on its roof when there's snow about, the window lit after dark,
+// and in winter (or on any cold day) smoke from the chimney, leaning with the wind.
+function drawHouse(t, day, horizon, ph, land, snowy, snowOn) {
+  let base = 0;
+  for (let x = HOUSE_X; x < HOUSE_X + HOUSE[0].length; x++) base = Math.max(base, horizon + 17 - Math.round(10 + 5 * Math.sin(x / 13 + 1) + 3 * Math.sin(x / 5)));
+  const y0 = base - HOUSE.length + 1, lit = ph === 'night' || ph === 'dusk';
+  const col = { c: shade(HOUSE_COLS.c, ph), w: shade(HOUSE_COLS.w, ph), d: shade(HOUSE_COLS.d, ph), r: snowy ? snowOn('#ffffff') : land(HOUSE_COLS.r), y: lit ? '#ffd36b' : shade(HOUSE_COLS.y, ph) };
+  HOUSE.forEach((row, j) => [...row].forEach((ch, i) => {
+    if (ch === '.') return;
+    // The eaves stay dark under the snow.
+    ctx.fillStyle = ch === 'r' && j === 3 && snowy ? shade(HOUSE_COLS.r, ph) : col[ch];
+    ctx.fillRect(HOUSE_X + i, y0 + j, 1, 1);
+  }));
+  const s = Math.max(wintry(day), k.cold ? 0.6 : 0);
+  if (s < 0.05) return;
+  const n = Math.ceil(6 * s), tt = still ? 3 : t, lean = 0.5 + Math.min(20, k.wind) * 0.35;
+  ctx.fillStyle = ph === 'night' ? '#5d6580' : ph === 'day' ? '#aab3bd' : '#b3a9b0';
+  for (let i = 0; i < n; i++) {
+    const p = (tt * 0.18 + i / n) % 1, size = p < 0.3 ? 1 : 2;
+    ctx.globalAlpha = 0.9 * (1 - p);
+    ctx.fillRect(Math.round(HOUSE_X + 5 + p * p * lean * 8 + Math.sin(tt * 1.3 + i * 2) * p * 1.2), Math.round(y0 - 1 - p * 16), size, size);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// The snowman: whole while the snow's fresh, slumping as it melts, then a lump with a hat and a carrot.
+function drawSnowman(lying, ph) {
+  const col = {};
+  for (const [c, v] of Object.entries(SNOWMAN_COLS)) col[c] = c === 'w' || c === 's' ? mix(shade(v, ph), v, 0.8) : shade(v, ph);
+  const top = ground - SNOWMAN.length;
+  const put = (r0, r1, dx, dy) => {
+    for (let j = r0; j <= r1; j++) [...SNOWMAN[j]].forEach((ch, i) => {
+      if (ch !== '.') { ctx.fillStyle = col[ch]; ctx.fillRect(SNOWMAN_X + i + dx, top + j + dy, 1, 1); }
+    });
+  };
+  if (lying >= 0.45) put(0, 16, 0, 0);
+  else if (lying >= 0.25) { put(12, 16, 0, 0); put(7, 11, 0, 1); put(0, 6, 1, 2); }
+  else {
+    put(14, 16, 0, 0); put(1, 2, 3, 11);
+    ctx.fillStyle = col.o; ctx.fillRect(SNOWMAN_X + 7, top + 13, 2, 1);
   }
 }
 

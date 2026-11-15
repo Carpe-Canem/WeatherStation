@@ -64,9 +64,62 @@ export function phaseAt(lat, lon, t = Date.now()) {
 
 export const PREVIEWS = [
   ['live', 'Live weather'], ['sunny', 'Sunny'], ['rain', 'Rain'], ['wind', 'Windy'],
-  ['puddles', 'After rain'], ['fog', 'Fog'], ['snow', 'Snow'], ['frost', 'Frosty'], ['hot', 'Hot'],
+  ['puddles', 'After rain'], ['fog', 'Fog'], ['snow', 'Snow'], ['aftersnow', 'After snow'], ['frost', 'Frosty'],
+  ['ice', 'Icy puddles'], ['hot', 'Hot'],
   ['storm', 'Storm coming'], ['dawn', 'Sunrise'], ['night', 'Night'], ['warmnight', 'Warm night'],
 ];
+
+// ---------- what the yard remembers ----------
+// Snow lies on the lawn and hills for days after it stops falling, melting slowly below freezing and
+// faster as it warms (or rains); a snowman goes up once it stops; puddles from rain in the last day and a
+// half freeze over on a freezing day. Only live readings from a real station are remembered (never a
+// preview or demo data), in localStorage.
+// Debug: ?snowlying=0..1 sets how much snow lies (with a snowman, unless it's snowing), ?ice freezes the puddles.
+
+const q = new URLSearchParams(location.search);
+const YARD_KEY = 'backyard-yard';
+let yard = null;
+function loadYard() {
+  if (!yard) {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(YARD_KEY)); } catch { /* storage unavailable */ }
+    yard = { snow: 0, t: Date.now(), man: 0, wet: 0, ...(saved && typeof saved === 'object' ? saved : {}) };
+  }
+  return yard;
+}
+
+function yardMemory(k, preview, remember) {
+  const live = preview === 'live', now = Date.now();
+  const y = loadYard();
+  if (live && remember) {
+    const h = Math.min(96, Math.max(0, (now - y.t) / 36e5));
+    if (k.snowing) {
+      // Settles over an hour or so, quicker in heavier snow (the gap since the last reading counts for at most an hour).
+      y.snow = Math.min(1, y.snow + Math.min(1, h) * (0.6 + 8 * k.rainRate));
+    } else {
+      // Per day: barely at all in the cold, gone in about a day at 40°F, faster in rain or sun.
+      const rate = (k.temp <= 32 ? 0.12 : Math.min(3, 0.12 + (k.temp - 32) * 0.11)) + (k.rain ? 2 : 0) + (k.sunny ? 0.15 : 0);
+      y.snow = Math.max(0, y.snow - (h / 24) * rate);
+    }
+    if (!k.snowing && y.snow >= 0.4 && !k.night) y.man = 1; // built once it stops, in daylight
+    if (y.snow < 0.12) y.man = 0;
+    if (k.rain || k.puddles) y.wet = now;
+    y.t = now;
+    try { localStorage.setItem(YARD_KEY, JSON.stringify(y)); } catch { /* storage unavailable */ }
+  }
+  // (Demo data shows none of it: it isn't the station's weather, and nothing would melt it.)
+  const mine = live && remember;
+  k.snowLying = mine ? y.snow : preview === 'aftersnow' ? 0.9 : 0;
+  k.snowman = mine ? !!y.man : preview === 'aftersnow';
+  if (q.has('snowlying')) {
+    k.snowLying = Math.min(1, Math.max(0, +q.get('snowlying') || 0));
+    k.snowman = k.snowLying >= 0.12 && !k.snowing;
+  }
+  // Puddles freeze when it's at or below freezing after rain (today's, or up to a day and a half ago),
+  // unless they're under the snow.
+  const rained = k.rainToday >= 0.05 || (mine && now - y.wet < 36 * 36e5);
+  k.ice = (k.freezing && !k.raining && k.snowLying < 0.5 && rained) || q.has('ice');
+}
 
 /**
  * @param c        current reading (imperial units, as stored) or null
@@ -113,6 +166,8 @@ export function conditions(c, dp, loc, preview = 'live', extra = {}) {
     case 'rain': set({ temp: 55, rainRate: 0.25, rainToday: 0.4, wind: 6, gust: 10, uv: 0, humidity: 96, falling: false }); break;
     case 'wind': set({ temp: 58, rainRate: 0, wind: 18, gust: 31, uv: 2, humidity: 55, falling: false }); break;
     case 'snow': set({ temp: 29, rainRate: 0.06, rainToday: 0.1, wind: 5, gust: 9, uv: 0, humidity: 92, falling: false }); break;
+    case 'aftersnow': set({ phase: 'day', temp: 28, rainRate: 0, rainToday: 0, wind: 3, gust: 5, uv: 2, humidity: 75, falling: false }); break;
+    case 'ice': set({ phase: 'day', temp: 27, rainRate: 0, rainToday: 0.3, wind: 2, gust: 4, uv: 2, humidity: 80, falling: false }); break;
     case 'frost': set({ phase: 'dawn', temp: 26, rainRate: 0, rainToday: 0, wind: 2, gust: 4, uv: 1, humidity: 80, falling: false }); break;
     case 'hot': set({ phase: 'day', temp: 94, rainRate: 0, rainToday: 0, wind: 3, gust: 6, uv: 9, humidity: 45, falling: false }); break;
     case 'storm': set({ temp: 66, rainRate: 0, wind: 12, gust: 22, uv: 1, humidity: 82, falling: true }); break;
@@ -143,5 +198,6 @@ export function conditions(c, dp, loc, preview = 'live', extra = {}) {
     k.sunny = !k.night && !k.raining && k.uv >= 6;
     k.cloud = k.raining ? 1 : k.falling ? 0.8 : k.humidity >= 90 ? 0.7 : k.sunny ? 0.15 : 0.4;
   }
+  yardMemory(k, preview, extra.remember);
   return k;
 }

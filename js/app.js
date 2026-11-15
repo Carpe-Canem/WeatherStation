@@ -60,7 +60,7 @@ function updateWorld() {
     settings.loc = { lat: c.lat, lon: c.lon };
     write(SETTINGS_KEY, settings);
   }
-  const k = conditions(c, pressureDelta(), settings.loc, settings.preview, { sky: state.sky, forecast: state.forecast });
+  const k = conditions(c, pressureDelta(), settings.loc, settings.preview, { sky: state.sky, forecast: state.forecast, remember: !isDemo() });
   world = k;
   document.documentElement.dataset.theme = k.night ? 'dark' : 'light';
   document.documentElement.classList.toggle('frost', k.frost);
