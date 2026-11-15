@@ -229,6 +229,15 @@ tbody tr:last-child td { border-bottom: 0; }
 /* ---------- settings ---------- */
 .form { padding: 14px; }
 .form .help { font-size: 14px; color: var(--ink2); }
+.version { margin: 20px 0 4px; }
+.version summary { list-style: none; width: max-content; margin: 0 auto; padding: 6px 12px; font-size: 13px; color: var(--ink2); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.version summary::-webkit-details-marker { display: none; }
+.changelog { list-style: none; margin: 8px 0 0; padding: 4px 16px; }
+.changelog li { padding: 10px 0; border-top: 1px solid var(--border); }
+.changelog li:first-child { border-top: 0; }
+.changelog b { font-weight: 800; }
+.changelog span { margin-left: 6px; font-size: 13px; color: var(--ink2); }
+.changelog p { margin: 2px 0 0; font-size: 14px; }
 .form label { display: block; font-size: 13px; color: var(--ink2); margin: 14px 0 4px; }
 .form input, .form select {
   width: 100%;
