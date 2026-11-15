@@ -2,6 +2,7 @@
 // CACHE in sw.js: whenever that goes up for a deploy, add an entry here too.
 // (There was no version 4.)
 export const CHANGES = [
+  [22, '2026-11-15', 'Easter, July 4, National Dog Day and Halloween outfits, with their own sayings and scenes: a bunny to chase, fireworks, a nap pile and a ghost.'],
   [21, '2026-11-15', 'Settings shows which version is loaded. Tap it to see what changed in each one.'],
   [20, '2026-11-15', 'Holiday sayings and scenes for Thanksgiving, Christmas, New Year\'s, Valentine\'s and St. Patrick\'s.'],
   [19, '2026-11-15', 'Christmas, New Year\'s, Valentine\'s and St. Patrick\'s outfits.'],

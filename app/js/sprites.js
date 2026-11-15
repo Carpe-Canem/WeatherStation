@@ -186,10 +186,10 @@ const work = {};
 // Headroom above the drawing, for sitting up, hopping and holiday hats: 8 drawing units, plus LIFT whole sprite
 // pixels added as rows above (see render()), which makes PAD at least 13. Ziggy needs the most: his snow
 // pounce leaps 16 units with his feathers or Santa hat on; Frank's crooked party hat needs 6 for a hop.
-// WIDE adds whole columns at the right, for a hat that tips past the nose (Ziggy's, landing nose-first in snow).
-// Both are set by the pose-grid clip test of every outfit (holiday-proposals/clip.html?src=outfits).
+// WIDE adds whole columns at the right, for a hat that tips past the nose (Ziggy's bunny ears need 2, landing
+// nose-first in snow). Both are set by the pose-grid clip test of every outfit (holiday-proposals/clip.html?src=outfits).
 const LIFT = { z: 11, f: 6, m: 4 };
-const WIDE = { z: 1, f: 0, m: 0 };
+const WIDE = { z: 2, f: 0, m: 0 };
 /** Headroom per dog, in drawing units: a point at drawing y sits at canvas y (y + PAD[k]) * SIZE[k]. */
 export const PAD = Object.fromEntries(Object.keys(SIZE).map(k => [k, 8 + LIFT[k] / SIZE[k]]));
 

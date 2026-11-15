@@ -7,7 +7,8 @@
 // Debug: ?dogspeed=8 speeds everything up; ?dogact=zoomies forces an activity for every dog that has it;
 // ?dogact=ball throws a tennis ball every few seconds; ?dogscene=howl|pile|tug|steal|rumble|stretch|treat
 // starts that scene (see "scenes" below) a couple of seconds in, then again every 25 seconds or so
-// (holiday scenes too: drumstick|coma|gift|sleigh|fireworks|confetti|rose|rainbow);
+// (holiday scenes too: drumstick|coma|gift|sleigh|fireworks|confetti|rose|rainbow|egg|bunny|hotdog|
+// fireworks4|bone|dogpile|ghost|pumpkin);
 // ?holiday=thanksgiving dresses them for that holiday whatever the date (ids in holidays.js), ?holiday=none
 // leaves them undressed; ?dogact=quip has them say their holiday lines.
 
@@ -1180,7 +1181,7 @@ function startStretch() {
 const SCENE_ACTS = new Set([
   'pester', 'flinch', 'rescue', 'flee', 'guardM', 'howl', 'pileup', 'tugwait', 'tugbring', 'tug', 'tugwin', 'tuglose',
   'steal', 'budge', 'evict', 'slink', 'reclaim', 'cower', 'skybark', 'race', 'chomp', 'beg', 'greeted', 'buttsniff', 'stretch',
-  'unwrap', 'santa', 'onewoof', 'cheer', 'confcatch', 'woo', 'rebuff', 'goldig', 'claim',
+  'unwrap', 'santa', 'onewoof', 'cheer', 'confcatch', 'woo', 'rebuff', 'goldig', 'claim', 'bunnychase', 'ghostbark',
 ]);
 const inScene = () => dogs.some(d => SCENE_ACTS.has(d.actName) || d.queue.some(a => SCENE_ACTS.has(a)));
 let nextScene = FORCE_SCENE ? 2 : rnd(45, 100), tugS = null, stealS = null, pileSpot = null;
@@ -1202,6 +1203,14 @@ const SCENES = {
   confetti: { when: () => hol('newyear') && !k.night && !k.raining, w: 1.2, go: startConfetti },
   rose: { when: () => hol('valentines') && !k.night && !k.rain && onScreen(dogs[M]) && !['hide', 'wanderoff', 'comeback'].includes(dogs[M].actName), w: 1.5, go: startRose },
   rainbow: { when: () => hol('stpatricks') && !k.night && !k.raining, w: 1.5, go: startRainbow },
+  egg: { when: () => hol('easter') && !k.night && !k.raining, w: 1.5, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3, 'egg') },
+  bunny: { when: () => hol('easter') && !k.night && !k.raining, w: 1.2, go: startBunny },
+  hotdog: { when: () => hol('july4') && !k.night && !k.raining, w: 1.5, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3, 'hotdog') },
+  fireworks4: { when: () => hol('july4') && k.night && !k.raining, w: 1.5, go: () => startFireworks(JULY4_COLS, 'too loud.') },
+  bone: { when: () => hol('dogday') && !k.night && !k.raining, w: 1.5, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3, 'bone') },
+  dogpile: { when: () => hol('dogday') && !k.night && !k.hot, w: 0.8, go: () => startPile('dogday') },
+  ghost: { when: () => hol('halloween') && k.night && !k.raining, w: 1.5, go: startGhost },
+  pumpkin: { when: () => hol('halloween') && !k.night && !k.raining, w: 1.5, go: () => dropTreat(rnd(0.2, 0.8) * innerWidth, innerHeight * 0.3, 'pumpkin') },
 };
 
 // The gap between scenes counts from when the last one ended, so a long one (a nap pile) doesn't
@@ -1236,7 +1245,8 @@ function startRumble() {
 }
 
 // Nap pile: all three curled up together, Minnie in the middle, on her tile if it's big enough.
-// 'coma' is Thanksgiving's: the same pile by day, after too much turkey.
+// 'coma' is Thanksgiving's: the same pile by day, after too much turkey; 'dogday' is National Dog Day's.
+const PILE_LINES = { coma: { z: 'so… full…', f: 'worth it.', m: 'z z' }, dogday: { z: 'best… day…', f: 'best day.', m: 'z z' } };
 function startPile(mode) {
   const m = dogs[M];
   let surf = onScreen(m) && width(m.surf) >= 120 ? m.surf : 'ground';
@@ -1246,7 +1256,7 @@ function startPile(mode) {
   }
   const w = width(surf);
   const c = surf === m.surf ? clamp(m.fx, 60 / w, 1 - 60 / w) : rnd(0.3, 0.7);
-  pileSpot = { surf, c, coma: mode === 'coma', fx: { m: c, f: clamp(c - 30 / w, 0.02, 0.98), z: clamp(c + 34 / w, 0.02, 0.98) } };
+  pileSpot = { surf, c, lines: PILE_LINES[mode], fx: { m: c, f: clamp(c - 30 / w, 0.02, 0.98), z: clamp(c + 34 / w, 0.02, 0.98) } };
   dogs.forEach((d, i) => later(i * 0.6, () => free(d) && interrupt(d, 'pileup')));
 }
 
@@ -1291,7 +1301,7 @@ Object.assign(ACTS, {
         if (!dd.settled) {
           dd.settled = 1;
           dd.facing = dd.def.k === 'm' ? (Math.random() < 0.5 ? 1 : -1) : fx < p.c ? 1 : -1;
-          if (p.coma) say(dd, { z: 'so… full…', f: 'worth it.', m: 'z z' }[dd.def.k], 3);
+          if (p.lines) say(dd, p.lines[dd.def.k], 3);
           else if (dd.def.k === 'm') say(dd, 'z z', 3);
         }
         return { lie: 1, eyes: 0, head: 0.38 };
@@ -1484,14 +1494,23 @@ Object.assign(ACTS, {
 
 const TREAT_PX = pix(['.bb....bb.', 'bbbbbbbbbb', '.bbbbbbbb.', 'ssssssssss', '.ss....ss.'], { b: '#f3e6c8', s: '#cdb68c' }, K);
 const DRUM_PX = pix(['ww.....mmmm.', '.wwwwwmmmhhm', '.wwwwwmmmmmm', 'ww.....mmmm.'], { w: '#f4efe2', m: '#a5562a', h: '#d9864a' }, K);
+const EGG_PX = pix(['..ll..', '.llll.', 'pppppp', 'yyyyyy', 'pppppp', '.llll.', '..ll..'], { l: '#b9a0e8', p: '#f4a6c8', y: '#f7d95a' }, K);
+const HOTDOG_PX = pix(['.bbbbbbbbbb.', 'ryyrryyrryyr', 'rrrrrrrrrrrr', '.bbbbbbbbbb.'], { b: '#e0b36a', r: '#b5432a', y: '#f2c230' }, K);
+const BONE_PX = pix(['.ww........ww.', 'wwww......wwww', '.wwwwwwwwwwww.', 'wwss......ssww', '.ss........ss.'], { w: '#f6f1e4', s: '#cfc5ae' }, K);
+const PUMPKIN_PX = pix(['...g....', '...gg...', '.oooooo.', 'oOoOOoOo', 'oOoOOoOo', 'oOoOOoOo', '.oooooo.'], { o: '#c8641c', O: '#e8862e', g: '#4e8a28' }, K);
 const GIFT_PX = pix(['..y...y..', '...yyy...', 'rrrryrrrr', 'rrrryrrrr', 'yyyyyyyyy', 'rrrryrrrr', 'rrrryrrrr', 'rrrryrrrr'], { r: '#d63a3a', y: '#f2c94c' }, K);
-// Things that drop for the dogs: a double-tap treat, and the holiday drumstick and present. Size in
+// Things that drop for the dogs: a double-tap treat, and the holiday ones (drumstick, present, egg, hot dog,
+// bone, pumpkin biscuit). Size in
 // screen pixels; cry is what each dog shouts as it races for it; only, the one dog who bothers; got,
 // what the winner does with it.
 const DROPS = {
   treat: { px: TREAT_PX, w: 20, h: 10, cry: { z: 'TREAT!!', f: '!' } },
   drumstick: { px: DRUM_PX, w: 24, h: 8, cry: { z: 'TURKEY!!', f: 'MINE.' } },
   gift: { px: GIFT_PX, w: 18, h: 16, cry: { z: 'PRESENT!!' }, only: 'z', got: 'unwrap' },
+  egg: { px: EGG_PX, w: 12, h: 14, cry: { z: 'EGG!!', f: 'MINE.' } },
+  hotdog: { px: HOTDOG_PX, w: 24, h: 8, cry: { z: 'HOT DOG!!', f: 'MINE.' } },
+  bone: { px: BONE_PX, w: 28, h: 10, cry: { z: 'BONE!!', f: 'MINE.' } },
+  pumpkin: { px: PUMPKIN_PX, w: 16, h: 14, cry: { z: 'PUMPKIN!!', f: 'MINE.' } },
 };
 
 function doubleTap(e) {
@@ -1575,6 +1594,10 @@ const QUIPS = {
   newyear: { z: ['3! 2! 1!', 'PARTY!!', 'HAPPY NEW—!'], f: ['bedtime.', 'noise. ugh.', 'hmph.'], m: ['…sparkly.', 'midnight? eh.', 'z z… cheers.'] },
   valentines: { z: ['BE MINE!!', 'LOVE YOU!!', 'ROSES!!'], f: ['mush.', 'no hugs.', '…fine. one.'], m: ['…flowers?', 'you may.', 'not today.'] },
   stpatricks: { z: ['GOLD?!', 'LUCKY ME!!', 'RAINBOW!!'], f: ['no pinching.', 'hmph. green.', 'mine.'], m: ['…clover.', 'lucky? eh.', 'how green.'] },
+  easter: { z: ['EGGS?!', 'BUNNY?!', 'HOP HOP!!'], f: ['no hopping.', 'these ears.', 'hmph. eggs.'], m: ['…jellybean?', 'pastel. eh.', 'how springy.'] },
+  july4: { z: ['BOOM?!', 'HOT DOGS!!', 'PARADE!!'], f: ['too loud.', 'no boom.', 'hmph. picnic.'], m: ['…sparklers.', 'hide me.', 'how festive.'] },
+  dogday: { z: ['MY DAY!!', 'TREATS?!', 'BEST DAY!!'], f: ['my day.', 'treats. now.', 'hmph. fine.'], m: ['as it should', 'adore me.', 'finally.'] },
+  halloween: { z: ['BOO!!', 'CANDY?!', 'SPOOKY!!'], f: ['i vant… nap.', 'bah. ghosts.', 'no candy?'], m: ['…boo.', 'how spooky.', 'witch? me?'] },
 };
 const hol = id => holiday() === id;
 const skyTop = () => document.querySelector('.top')?.getBoundingClientRect().bottom || 0;
@@ -1593,6 +1616,10 @@ const SLEIGH_PX = pix([
 const BURST = ['.....x.....', '.x...x...x.', '..x.....x..', '...........', '.....c.....', 'xx..ccc..xx', '.....c.....', '...........', '..x.....x..', '.x...x...x.', '.....x.....'];
 const BURST_COLS = ['#ff5a5a', '#ffd34d', '#6fd3ff', '#c39bff', '#7dffa1', '#ff8ad8'];
 const CONFETTI_COLS = ['#ff5a5a', '#ffd34d', '#4fb3ff', '#b98cff', '#3fcf7a', '#ff8ad8'];
+const JULY4_COLS = ['#ff4a4a', '#f4f4f4', '#4f7bff'];
+// Facing right; flipped with scaleX when it hops left.
+const BUNNY_PX = pix(['.......b.b.', '.......b.b.', '......bbbb.', '.bbbbbbbbkb', 'wbbbbbbbbbb', '.bbbbbbbb..', '..bb...bb..'], { b: '#a88f74', k: '#1a1410', w: '#f4f4f4' }, K);
+const GHOST_PX = pix(['..wwwww..', '.wwwwwww.', 'wwkwwwkww', 'wwkwwwkww', 'wwwwwwwww', 'wwwwkwwww', 'wwwwwwwww', 'wwwwwwwww', 'ww.www.ww', 'w...w...w'], { w: '#f2f2f8', k: '#1a1a2a' }, 3);
 const COIN_PX = pix(['.yyyy.', 'yywwyy', 'yywyyy', 'yyyyyy', '.yyyy.'], { y: '#f2c94c', w: '#fff3b0' }, K);
 // A rainbow arc, 6 bands of 2 pixels, drawn 3x; its right foot is 126px from its left edge.
 const RAINBOW_PX = (() => {
@@ -1605,7 +1632,7 @@ const RAINBOW_PX = (() => {
   return pix(rows, { a: '#e53935', b: '#fb8c00', c: '#fdd835', d: '#43a047', e: '#1e88e5', f: '#8e24aa' }, 3);
 })();
 
-let giftBox = null, sleigh = null, rainbow = null, confetti = [], confettiUntil = 0, nextConfetti = 0;
+let giftBox = null, sleigh = null, rainbow = null, bunny = null, ghost = null, confetti = [], confettiUntil = 0, nextConfetti = 0;
 
 // Christmas Eve, late: a sleigh crosses the sky. Ziggy wakes up shouting; Frank gives it one woof.
 function startSleigh() {
@@ -1615,18 +1642,38 @@ function startSleigh() {
 }
 
 // New Year's at midnight: fireworks. Ziggy cheers, Minnie hides at the edge and Frank guards her.
-function startFireworks() {
+function startFireworks(cols = BURST_COLS, line = 'noise. ugh.') {
   const [z, f, m] = dogs, top = skyTop();
   for (let i = 0; i < 8; i++) {
     later(i * 0.8 + rnd(0, 0.4), () => {
-      const e = prop('burst', pix(BURST, { x: BURST_COLS[Math.floor(Math.random() * BURST_COLS.length)], c: '#fff' }, 3));
+      const e = prop('burst', pix(BURST, { x: cols[Math.floor(Math.random() * cols.length)], c: '#fff' }, 3));
       e.style.transform = `translate(${Math.round(rnd(0.1, 0.9) * innerWidth - 16)}px, ${Math.round(top + rnd(20, 170))}px)`;
       e.addEventListener('animationend', () => e.remove());
     });
   }
   later(0.4, () => free(m) && interrupt(m, 'cower'));
   later(0.7, () => free(z) && interrupt(z, 'cheer'));
-  later(2.4, () => { if (free(f)) { interrupt(f, 'guardM'); say(f, 'noise. ugh.', 1.8); } });
+  later(2.4, () => { if (free(f)) { interrupt(f, 'guardM'); say(f, line, 1.8); } });
+}
+// (July 4 night uses it too, in red, white and blue, and Frank says "too loud.")
+
+// Easter: a bunny hops across the lawn. Ziggy chases it off; Frank grumbles; Minnie can't be bothered.
+function startBunny() {
+  if (!free(dogs[Z]) || bunny) return;
+  const dir = (dogs[Z].sx ?? 0) < innerWidth / 2 ? 1 : -1; // from Ziggy's side, so he can chase it across
+  bunny = { el: prop('bunny', BUNNY_PX), dir, x: dir > 0 ? -24 : innerWidth + 24, v: Math.max(120, innerWidth / 6), t: 0 }; // 3-6 s across
+  later(0.6, () => free(dogs[Z]) && interrupt(dogs[Z], 'bunnychase'));
+  later(1.6, () => { const f = dogs[F]; if (free(f) && !SCENE_ACTS.has(f.actName)) say(f, 'hmph.', 1.6); });
+  later(2, () => { const m = dogs[M]; if (free(m) && onScreen(m) && !SCENE_ACTS.has(m.actName)) interrupt(m, 'ignore'); });
+}
+
+// Halloween night: a little ghost drifts across the sky. Ziggy barks at it, Frank gives it one woof, Minnie hides.
+function startGhost() {
+  if (ghost) return;
+  ghost = { el: prop('ghost', GHOST_PX), x: -30, y: skyTop() + rnd(30, 80), v: (innerWidth + 60) / 10 };
+  later(1.2, () => free(dogs[Z]) && interrupt(dogs[Z], 'ghostbark'));
+  later(1.8, () => free(dogs[M]) && interrupt(dogs[M], 'cower'));
+  later(2.6, () => free(dogs[F]) && interrupt(dogs[F], 'onewoof'));
 }
 
 // New Year's Day: confetti. Ziggy jumps for it, Frank turns his back, Minnie sits it out, then shakes it off.
@@ -1660,6 +1707,18 @@ function holidayStep(dt) {
     s.x += s.v * dt;
     s.el.style.transform = `translate(${Math.round(s.x)}px, ${Math.round(s.y - (s.x / innerWidth) * 24 + Math.sin(clock * 3) * 3)}px)`;
     if (s.x > innerWidth + 20) { s.el.remove(); sleigh = null; }
+  }
+  if (bunny) {
+    const b = bunny, hop = Math.abs(Math.sin(b.t * 7));
+    b.t += dt; b.x += b.dir * b.v * dt;
+    b.el.style.transform = `translate(${Math.round(b.x - 11)}px, ${Math.round(gy - 14 - hop * 12)}px) scaleX(${b.dir})`;
+    if (b.x < -40 || b.x > innerWidth + 40) { b.el.remove(); bunny = null; }
+  }
+  if (ghost) {
+    const g = ghost;
+    g.x += g.v * dt;
+    g.el.style.transform = `translate(${Math.round(g.x)}px, ${Math.round(g.y + Math.sin(clock * 2) * 8)}px)`;
+    if (g.x > innerWidth + 30) { g.el.remove(); ghost = null; }
   }
   if (!still && clock < confettiUntil && clock > nextConfetti && confetti.length < 70) {
     nextConfetti = clock + 0.1;
@@ -1720,6 +1779,24 @@ Object.assign(ACTS, {
     return {
       dur: 3.6, bubble: 'SANTA?!', mood: 'happy',
       pose: (dd, u, t) => { if (sleigh) dd.facing = sleigh.x > dd.sx ? 1 : -1; const m = Math.floor(t * 4) % 2; return { sit: 1, head: -0.45 - 0.06 * m, mouth: m, ear: 0.2 }; },
+    };
+  },
+  // Ziggy runs after the Easter bunny until it's gone.
+  bunnychase: d => needGround(d, 'bunnychase') || {
+    dur: 14, run: 1, bubble: 'BUNNY!!', mood: 'happy',
+    pose: dd => {
+      const b = bunny;
+      if (!b) { dd.actT = dd.act.dur; return {}; }
+      walkTo(dd, noseTo(dd, clamp(b.x, 12, innerWidth - 12)).fx);
+      return { mouth: 1, ear: -0.3, head: -0.05 };
+    },
+  },
+  // Ziggy, at a ghost in the sky: sits up barking at it, then goes back to sleep.
+  ghostbark: d => {
+    d.queue.push('nap');
+    return {
+      dur: 3.6, bubble: 'BOO?!',
+      pose: (dd, u, t) => { if (ghost) dd.facing = ghost.x > dd.sx ? 1 : -1; const m = Math.floor(t * 4) % 2; return { sit: 1, head: -0.45 - 0.06 * m, mouth: m, ear: -0.1 }; },
     };
   },
   // Frank lifts his head: one woof, and back to sleep.
