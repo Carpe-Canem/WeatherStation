@@ -185,16 +185,20 @@ const work = {};
 
 // Headroom above the drawing, for sitting up, hopping and holiday hats: 8 drawing units, plus LIFT whole sprite
 // pixels added as rows above (see render()), which makes PAD at least 13. Ziggy needs the most: his snow
-// pounce leaps 16 units with his feathers on.
-const LIFT = { z: 10, f: 4, m: 4 };
+// pounce leaps 16 units with his feathers or Santa hat on; Frank's crooked party hat needs 6 for a hop.
+// WIDE adds whole columns at the right, for a hat that tips past the nose (Ziggy's, landing nose-first in snow).
+// Both are set by the pose-grid clip test of every outfit (holiday-proposals/clip.html?src=outfits).
+const LIFT = { z: 11, f: 6, m: 4 };
+const WIDE = { z: 1, f: 0, m: 0 };
 /** Headroom per dog, in drawing units: a point at drawing y sits at canvas y (y + PAD[k]) * SIZE[k]. */
 export const PAD = Object.fromEntries(Object.keys(SIZE).map(k => [k, 8 + LIFT[k] / SIZE[k]]));
 
 /** Buffer size in sprite pixels for a dog, and where its feet touch the ground.
- *  lift: the sprite pixels of headroom added for hats, above what the dogs had before. */
+ *  lift: the sprite pixels of headroom added for hats, above what the dogs had before; wide: the columns
+ *  added at the right for them (body: the width without them). */
 export const box = k => {
-  const s = SIZE[k], l = LIFT[k];
-  return { w: Math.ceil(72 * s), h: Math.ceil(56 * s) + l, footY: Math.round(52 * s) + l, cx: Math.round(40 * s), lift: l };
+  const s = SIZE[k], l = LIFT[k], body = Math.ceil(72 * s);
+  return { w: body + WIDE[k], h: Math.ceil(56 * s) + l, footY: Math.round(52 * s) + l, cx: Math.round(40 * s), lift: l, body };
 };
 
 // Stamps one outfit part (see outfits.js) into the snapped pixels: the art follows its frame's transform,

@@ -14,7 +14,8 @@
 //   turn    optional, default 1: how much of the frame's rotation the art follows (0 = always upright)
 //   behind  optional: true = drawn only where the dog isn't
 // Every row of a part must be the same width. Parts are stamped after the palette snap and before the
-// outline, so they get the dog's dark outline. Headroom above the dogs is PAD in sprites.js (at least 13).
+// outline, so they get the dog's dark outline. A taller or wider part may need more room: raise that dog's LIFT
+// (rows above) or WIDE (columns at the right) in sprites.js, as the pose-grid clip test reports.
 
 export const OUTFITS = {
   thanksgiving: {
@@ -56,6 +57,157 @@ export const OUTFITS = {
           '..OYO.',
           '...OO.',
           '....O.',
+        ] },
+    ] },
+  },
+  christmas: {
+    z: { name: 'Santa hat', parts: [
+      { frame: 'head', at: [54.5, 8], pivot: [8, 7],
+        pal: { R: '#d0312d', r: '#94201f', W: '#f4f1ea', w: '#cfc8bb' },
+        rows: [
+          '......RRRR..',
+          '....RRRRRRR.',
+          '..rRRRRRRRRR',
+          '.rRr..RRRRRr',
+          'WWr...RRRRRr',
+          'WW..WWWWWWWW',
+          '....wWWWWWWw',
+        ] },
+    ] },
+    f: { name: 'Santa hat, pulled low', parts: [
+      { frame: 'head', at: [50.5, 10], pivot: [8, 7],
+        pal: { R: '#d0312d', r: '#94201f', W: '#f4f1ea', w: '#cfc8bb' },
+        rows: [
+          '.....RRRRR..',
+          '....RRRRRRR.',
+          '...rRRRRRRRR',
+          '..rRr.RRRRRR',
+          'WWr...RRRRRr',
+          'WW..WWWWWWWW',
+          '....wwwwwwww',
+        ] },
+    ] },
+    m: { name: 'Holly sprig', parts: [
+      { frame: 'head', at: [50.5, 8.2], pivot: [3, 2.5],
+        pal: { R: '#d0312d', G: '#2f8a3e', g: '#1d5c29' },
+        rows: [
+          'G....g',
+          'GGRRgg',
+          '.GRRg.',
+        ] },
+    ] },
+  },
+  newyear: {
+    z: { name: 'Sparkly bow tie', parts: [
+      { frame: 'head', at: [53.6, 19.2], pivot: [2.5, 1.5],
+        pal: { Y: '#f2c230', y: '#b88a14', W: '#fff6d8' },
+        rows: [
+          'Y...Y',
+          'YYyWY',
+          'YWyYY',
+          'Y...Y',
+        ] },
+    ] },
+    f: { name: 'Crooked party hat', parts: [
+      { frame: 'head', at: [54.4, 10], pivot: [3, 9],
+        pal: { B: '#3d6fd6', P: '#ef6fa2', Y: '#f2c230' },
+        rows: [
+          '.....YY',
+          '.....Y.',
+          '....PB.',
+          '...BBP.',
+          '...PBB.',
+          '..BBPB.',
+          '..BPBB.',
+          '.PBBBP.',
+          'YYYYYY.',
+        ] },
+    ] },
+    m: { name: 'Gold tiara', parts: [
+      { frame: 'head', at: [50.3, 8.4], pivot: [2.5, 4],
+        pal: { Y: '#f2c230', y: '#b88a14', T: '#4fc3c8' },
+        rows: [
+          '..Y..',
+          'Y.Y.Y',
+          'YYTYY',
+          'yyyyy',
+        ] },
+    ] },
+  },
+  valentines: {
+    z: { name: 'Rose in his teeth', parts: [
+      { frame: 'head', at: [57, 15.6], pivot: [3, 2.5],
+        pal: { R: '#d63345', r: '#97202f', G: '#3f8f3a' },
+        rows: [
+          '.RR.......',
+          'RrRR..G...',
+          'RRrRGGGGGG',
+          '.RRG......',
+          '..G.......',
+        ] },
+    ] },
+    f: { name: 'Studded collar, heart tag', parts: [
+      { frame: 'head', at: [39.3, 19.2], pivot: [0, 0],
+        pal: { R: '#d63345', r: '#97202f', P: '#f27fa6', S: '#c9ced8' },
+        rows: [
+          'S.S......',
+          'RRRS.S...',
+          'rRRRRRS..',
+          '..rRRRRRS',
+          '....rRRRR',
+          '......P.P',
+          '.....PPPP',
+          '......PP.',
+        ] },
+    ] },
+    m: { name: 'Pink hair bow', parts: [
+      { frame: 'head', at: [50.3, 8.4], pivot: [2.5, 2.5],
+        pal: { P: '#f27fa6', p: '#c4547c' },
+        rows: [
+          'PP.PP',
+          'PPpPP',
+          '.p.p.',
+        ] },
+    ] },
+  },
+  stpatricks: {
+    z: { name: 'Leprechaun hat', parts: [
+      { frame: 'head', at: [54.5, 8], pivot: [5, 6],
+        pal: { G: '#2f9a44', g: '#1d6a2c', K: '#3a2a1a', Y: '#f2c230', y: '#b88a14' },
+        rows: [
+          '..GGGGGGg.',
+          '..GGGGGGg.',
+          '...GGGGg..',
+          '...GGGGg..',
+          '...KYyYK..',
+          'GGGGGGGGGg',
+        ] },
+    ] },
+    f: { name: 'Shamrock tag', parts: [
+      { frame: 'head', at: [39.3, 19.2], pivot: [0, 0],
+        pal: { G: '#2f9a44', g: '#1d6a2c', L: '#8fdc7a' },
+        rows: [
+          'g.........',
+          'gGG.......',
+          '.gGGG.....',
+          '..ggGGG...',
+          '....gGGG..',
+          '.....L.L..',
+          '.....LLL..',
+          '....LL.LL.',
+          '.....LgL..',
+          '.......g..',
+        ] },
+    ] },
+    m: { name: 'Tiny leprechaun hat, askew', parts: [
+      { frame: 'head', at: [49.6, 7.9], pivot: [3, 5],
+        pal: { G: '#2f9a44', g: '#1d6a2c', K: '#3a2a1a' },
+        rows: [
+          'GGGG..',
+          '.GGGg.',
+          '..GGg.',
+          '..KKK.',
+          '.GGGGG',
         ] },
     ] },
   },

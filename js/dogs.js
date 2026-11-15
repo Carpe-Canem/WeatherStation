@@ -753,7 +753,7 @@ function placeGrab(d, S) {
   // The shadow on the surface below, sharper and darker the nearer it gets, and that surface's edge aglow.
   const fx = clamp(d.sx, 14, innerWidth - 14), tg = target(S, fx, d.sy), f = clamp(1 - (tg.s.y - d.sy) / 700, 0.4, 1);
   shadowEl.hidden = false;
-  shadowEl.style.width = `${Math.round(d.box.w * K * 0.55)}px`;
+  shadowEl.style.width = `${Math.round(d.box.body * K * 0.55)}px`;
   shadowEl.style.opacity = (0.15 + 0.35 * f).toFixed(2);
   shadowEl.style.transform = `translate(${Math.round(fx)}px, ${Math.round(tg.s.y)}px) translate(-50%, -50%) scale(${f.toFixed(2)})`;
   ledgeEl.hidden = !!tg.s.ground;
