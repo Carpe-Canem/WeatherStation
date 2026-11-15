@@ -64,7 +64,7 @@ export function phaseAt(lat, lon, t = Date.now()) {
 
 export const PREVIEWS = [
   ['live', 'Live weather'], ['sunny', 'Sunny'], ['rain', 'Rain'], ['wind', 'Windy'],
-  ['puddles', 'After rain'], ['fog', 'Fog'], ['snow', 'Snow'], ['aftersnow', 'After snow'], ['frost', 'Frosty'],
+  ['puddles', 'After rain'], ['rainbow', 'Rainbow'], ['fog', 'Fog'], ['snow', 'Snow'], ['aftersnow', 'After snow'], ['frost', 'Frosty'],
   ['ice', 'Icy puddles'], ['hot', 'Hot'],
   ['storm', 'Storm coming'], ['dawn', 'Sunrise'], ['night', 'Night'], ['warmnight', 'Warm night'],
 ];
@@ -74,7 +74,10 @@ export const PREVIEWS = [
 // faster as it warms (or rains); a snowman goes up once it stops; puddles from rain in the last day and a
 // half freeze over on a freezing day. Only live readings from a real station are remembered (never a
 // preview or demo data), in localStorage.
-// Debug: ?snowlying=0..1 sets how much snow lies (with a snowman, unless it's snowing), ?ice freezes the puddles.
+// A rainbow (k.rainbow, 0-1) shows for the first half hour or so after rain stops, while the sun's up and
+// the cloud is breaking.
+// Debug: ?snowlying=0..1 sets how much snow lies (with a snowman, unless it's snowing), ?ice freezes the
+// puddles, ?rainbow puts up a rainbow (or the Settings preview "Rainbow").
 
 const q = new URLSearchParams(location.search);
 const YARD_KEY = 'backyard-yard';
@@ -104,6 +107,7 @@ function yardMemory(k, preview, remember) {
     if (!k.snowing && y.snow >= 0.4 && !k.night) y.man = 1; // built once it stops, in daylight
     if (y.snow < 0.12) y.man = 0;
     if (k.rain || k.puddles) y.wet = now;
+    if (k.rain) y.rainAt = now; // still coming down (y.wet carries on while the puddles last)
     y.t = now;
     try { localStorage.setItem(YARD_KEY, JSON.stringify(y)); } catch { /* storage unavailable */ }
   }
@@ -119,6 +123,11 @@ function yardMemory(k, preview, remember) {
   // unless they're under the snow.
   const rained = k.rainToday >= 0.05 || (mine && now - y.wet < 36 * 36e5);
   k.ice = (k.freezing && !k.raining && k.snowLying < 0.5 && rained) || q.has('ice');
+  // A rainbow: full for 20 minutes after the rain stops, fading out over the next 20.
+  const since = mine && y.rainAt ? (now - y.rainAt) / MIN : Infinity;
+  const bow = since < 20 ? 1 : Math.max(0, 1 - (since - 20) / 20);
+  k.rainbow = !k.raining && !k.night && !k.freezing && k.cloud < 0.8 ? bow : 0;
+  if (preview === 'rainbow' || q.has('rainbow')) k.rainbow = 1;
 }
 
 /**
@@ -172,6 +181,7 @@ export function conditions(c, dp, loc, preview = 'live', extra = {}) {
     case 'hot': set({ phase: 'day', temp: 94, rainRate: 0, rainToday: 0, wind: 3, gust: 6, uv: 9, humidity: 45, falling: false }); break;
     case 'storm': set({ temp: 66, rainRate: 0, wind: 12, gust: 22, uv: 1, humidity: 82, falling: true }); break;
     case 'night': set({ phase: 'night', rainRate: 0, uv: 0 }); break;
+    case 'rainbow': set({ phase: 'day', temp: 62, rainRate: 0, rainToday: 0.4, wind: 5, gust: 8, uv: 4, humidity: 86, falling: false }); break;
     case 'puddles': set({ temp: 56, rainRate: 0, rainToday: 0.6, wind: 4, gust: 7, uv: 1, humidity: 85, falling: false }); break;
     case 'fog': set({ temp: 48, dewpt: 47.5, humidity: 99, rainRate: 0, rainToday: 0, wind: 1, gust: 2, uv: 0, falling: false }); break;
     case 'dawn': set({ phase: 'dawn', temp: 52, rainRate: 0, rainToday: 0, wind: 2, gust: 4, uv: 0, humidity: 70, falling: false }); break;
