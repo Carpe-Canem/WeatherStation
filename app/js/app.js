@@ -172,6 +172,18 @@ function insight(c, u) {
 
 // ---------- data ----------
 
+// Weather Underground sometimes answers the live call with every reading blank. When it does,
+// show the station's latest 5-minute reading from today instead, with that reading's time.
+function fillBlank(cur, today) {
+  const p = today?.at(-1);
+  if (cur.temp != null || p?.temp == null) return cur;
+  return {
+    ...cur, t: p.t, temp: p.temp, feels: p.temp, dewpt: p.dewpt, humidity: p.humidity,
+    wind: p.wind, gust: p.gust, windDir: p.windDir, pressure: p.pressure,
+    rainRate: p.rainRate, rain: p.rain, uv: p.uv, solar: p.solar,
+  };
+}
+
 let inflight = null;
 function refresh(full = true) {
   if (inflight) return inflight;
@@ -188,10 +200,10 @@ function refresh(full = true) {
         ...(full ? [soft(src.today(cfg)), soft(src.hourly(cfg)), soft(src.daily(cfg))] : []),
       ]);
       if (demoRun !== isDemo()) return; // the data source changed while this was running
-      if (cur) state.current = cur;
+      if (full && today) state.today = today;
+      if (cur) state.current = fillBlank(cur, state.today);
       state.lastCurrent = Date.now();
       if (full) {
-        if (today) state.today = today;
         if (hourly) state.hourly = hourly;
         if (daily) state.daily = daily;
         state.lastFull = Date.now();
