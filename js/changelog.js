@@ -3,6 +3,7 @@
 // Settings shows the newest entry's number as the running version.
 // (There was no version 4.)
 export const CHANGES = [
+  [31, '2026-11-16', 'When Weather Underground sends a blank live reading, the Now screen shows the station\'s latest 5-minute reading instead of a dash, so the temperature and the cards stay up.'],
   [30, '2026-11-15', 'The temperature details at the top (feels like, high and low) are darker and have a soft glow behind them, so they stay easy to read against a grey sky and passing clouds.'],
   [29, '2026-11-15', 'The backyard tree is bigger, filling more of the sky above the hills on tall phones, and the demo data notice at the top of the screen is gone.'],
   [28, '2026-11-15', 'Summer in the backyard: butterflies flutter over the lawn (Ziggy snaps at them, Minnie watches, Frank ignores them), sunflowers bloom along it in mid to late summer, and dragonflies dart over the puddles after rain. In a dry spell the lawn browns in patches, heat shimmers over the hills on hot afternoons, and thunderheads tower on the horizon when a storm is building. Settings has a new weather preview: Dry spell.'],
