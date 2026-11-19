@@ -3,6 +3,7 @@
 // Settings shows the newest entry's number as the running version.
 // (There was no version 4.)
 export const CHANGES = [
+  [32, '2026-11-19', 'Dragging past the top or bottom of a screen no longer pulls the whole page with it, so the Now screen stays put when you swipe on it.'],
   [31, '2026-11-16', 'When Weather Underground sends a blank live reading, the Now screen shows the station\'s latest 5-minute reading instead of a dash, so the temperature and the cards stay up.'],
   [30, '2026-11-15', 'The temperature details at the top (feels like, high and low) are darker and have a soft glow behind them, so they stay easy to read against a grey sky and passing clouds.'],
   [29, '2026-11-15', 'The backyard tree is bigger, filling more of the sky above the hills on tall phones, and the demo data notice at the top of the screen is gone.'],
