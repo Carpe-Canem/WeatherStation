@@ -343,12 +343,13 @@ function renderNow() {
   if (c.uv != null && hasUv) meta.push(`UV ${Math.round(c.uv)}, ${uvBand(c.uv).toLowerCase()}`);
   const note = insight(c, u);
 
-  const fc = state.forecast.length ? `
-    <div class="card forecast" aria-label="Forecast">${state.forecast.map(d => `
+  const fdays = state.forecast.filter(d => !d.past).slice(0, 5);
+  const fc = fdays.length ? `
+    <div class="card forecast" aria-label="Forecast">${fdays.map(d => `
       <div class="fday" title="${esc(d.phrase)}">
         <div class="dow">${esc(d.dow)}</div>
         <div class="ficon" role="img" aria-label="${esc(d.phrase)}">${forecastIcon(d.icon)}</div>
-        <div class="fhl">${d.hi != null ? `<span class="fhi">${u.fmt('temp', d.hi)}</span> ` : ''}<span class="flo">${d.hi == null ? 'Low ' : ''}${u.fmt('temp', d.lo)}</span></div>
+        <div class="fhl"><span class="fhi">${u.fmt('temp', d.hi ?? (d.dow === 'Today' ? hi?.v : null))}</span> <span class="flo">${u.fmt('temp', d.lo)}</span></div>
         <div class="fpop">${d.pop != null ? `${d.pop}% rain` : ''}</div>
       </div>`).join('')}
     </div>` : '';
