@@ -116,12 +116,16 @@ export async function forecast({ apiKey }, lat, lon) {
   });
   if (!j?.dayOfWeek) return [];
   const dp = j.daypart?.[0] || {};
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   return j.dayOfWeek.slice(0, 5).map((dow, i) => {
     // Each day has a day part and a night part; the day part is empty once it has passed.
     const k = dp.iconCode?.[2 * i] != null ? 2 * i : 2 * i + 1;
+    const hi = j.temperatureMax?.[i] ?? null;
+    // The forecast's first day lasts until morning, so after midnight it is still yesterday's night:
+    // once its day part is gone it is "Tonight", and the calendar day is whichever entry matches today.
     return {
-      dow: i === 0 ? 'Today' : dow.slice(0, 3),
-      hi: j.temperatureMax?.[i] ?? null,
+      dow: i === 0 && hi == null ? 'Tonight' : dow === today ? 'Today' : dow.slice(0, 3),
+      hi,
       lo: j.temperatureMin?.[i] ?? null,
       pop: dp.precipChance?.[k] ?? null,
       icon: dp.iconCode?.[k] ?? null,
