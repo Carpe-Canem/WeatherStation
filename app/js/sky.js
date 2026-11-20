@@ -14,11 +14,16 @@
 // it in mid to late summer, and dragonflies dart over the puddles after rain. In a dry spell the lawn
 // browns in patches (k.drought), heat shimmers over the hills on hot afternoons, and when a storm is
 // building (the pressure falling) thunderheads tower on the horizon.
+// The backdrop is the city by default (settings.scene, k.scene): across the river from the yard, downtown
+// Pittsburgh stands on the far bank with a yellow suspension bridge on the left, its windows lit after dark
+// and the Gulf Tower's crown glowing in the temperature's colour. Country (the far hill and the little
+// house) is the original backyard.
 // Drawn at a low resolution and scaled up with crisp pixels. Frame rate drops when nothing moves fast.
 //
 // Debug: ?season= and ?seasonat= (seasons.js); ?geese brings the geese over every 40 s or so, and
 // ?robins the robins (in spring); ?snowlying=0..1, ?ice and ?rainbow (conditions.js), or the Settings
 // previews "After snow", "Icy puddles" and "Rainbow". ?season=spring&seasonat=0.6 has the most puffs.
+// ?scene=country or ?scene=city (app.js) picks the backdrop for one visit.
 // Summer: ?butterflies brings them every few seconds; ?heatshimmer and ?thunderheads force those on;
 // ?drought=0..1 (conditions.js) or the Settings preview "Dry spell" browns the lawn; the previews "Hot",
 // "Storm coming" and "After rain" show the shimmer, the thunderheads and the dragonflies.
@@ -251,6 +256,31 @@ const sunflowerStage = d => (d < 172 || d >= 264 ? null : d < 188 ? 'grow' : d <
 const SUNFLOWER_HEAD = ['.yyy.', 'ycccy', 'ycccy', '.yyy.'];
 const SUNFLOWER_DROOP = ['.ccc', 'yccy', '..y.'];
 
+// ---------- city ----------
+// (Laid out with hash(); nothing here draws from r().)
+// Downtown, stylised, roughly as seen from across the river: the U.S. Steel Tower, BNY Mellon, the Gulf
+// Tower (its pyramid crown, 'p', is the weather beacon), PPG Place's glass spires, Fifth Avenue Place's mast.
+// 'a' wall, 'b' shadow side, 'g' glass, 'p' crown, 'm' mast.
+const TOWERS = {
+  steel: { rows: ['.aab.', ...Array(21).fill('aaabb')], col: '#4a3c36' },
+  mellon: { rows: Array(19).fill('aaab'), col: '#3a4148' },
+  gulf: { rows: ['..p..', '..p..', '.ppp.', '.ppp.', 'ppppp', ...Array(11).fill('aaaab')], col: '#b9a888' },
+  ppg: { rows: ['.g.g.g.', '.g.g.g.', ...Array(15).fill('ggggggg')], col: '#5a6b7e' },
+  ppgWing: { rows: ['g.g', ...Array(8).fill('ggg')], col: '#5a6b7e' },
+  fifth: { rows: ['..m..', '..m..', '..m..', '.aaa.', ...Array(11).fill('aaaab')], col: '#8d8478' },
+  low1: { rows: Array(8).fill('aaaab'), col: '#7a7468' },
+  low2: { rows: Array(11).fill('aaab'), col: '#857c6e' },
+  low3: { rows: Array(6).fill('aaaaab'), col: '#6e6a62' },
+  low4: { rows: Array(9).fill('aab'), col: '#918674' },
+};
+// Left to right from SKYLINE_X: [tower, columns in]. 65 columns wide.
+const SKYLINE = [['low3', 0], ['low1', 6], ['ppgWing', 11], ['ppg', 14], ['ppgWing', 21], ['low2', 25], ['fifth', 29], ['mellon', 35], ['low4', 39], ['gulf', 42], ['steel', 48], ['low1', 54], ['low3', 59]];
+const SKYLINE_X = 46, BRIDGE = [22, 30]; // the bridge: [x, width]
+// Steam off a rooftop on cold days (in the country it's the house's chimney smoke): the right-hand low1.
+const STEAM_X = SKYLINE_X + 56;
+/** The Gulf Tower's crown after dark: blue when it's cold, through violet, to red when it's hot (deg F). */
+const beacon = temp => mix('#3d7bff', '#ff4a3a', Math.min(1, Math.max(0, ((temp ?? 50) - 20) / 70)));
+
 let falling = [], nextDrop = 0, geese = null, nextGeese = null, scatteredAt = -Infinity;
 let robins = [], nextRobins = null, robinVisits = 0;
 let butterflies = [], nextButterfly = null, dflies = [], thunder = null, flashUntil = 0, nextFlash = 0;
@@ -420,6 +450,7 @@ function draw(t) {
     cloud(Math.floor(x), Math.floor(y * horizon), Math.max(2, Math.round(s * 3 + k.cloud * 1.5)), cc);
   }
   drawRainbow(horizon, ph);
+  const city = (k.scene || 'city') !== 'country';
 
   // Hills, a tree, and the lawn the dogs walk on, in the season's colours.
   // Frost whitens the land a little; falling snow covers it, and so does fresh snow lying after a fall.
@@ -435,30 +466,38 @@ function draw(t) {
   if (dry) [d1, d2, dg] = [d1, d2, dg].map(c => mix(c, '#b9ad66', dry * 0.25));
   const hill = base => [-1, ...PATCH.keys()].map(p => land(p < 0 || !patchy ? base : mix(base, PATCH[p], patchy * 0.65)));
   const c1 = hill(d1), c2 = hill(d2), grass = land(dg);
+  const roofSnow = full || lying >= 0.3;
+  // The city stands where the far hill would be, so the near hill comes up in front of the river.
+  if (city) drawCity(t, day, horizon, ph, mix(hor, grey[1], Math.min(1, over)), land, roofSnow, snowOn, patches, d1);
   const tops = [];
   for (let x = 0; x < W; x++) {
     const a = Math.round(10 + 5 * Math.sin(x / 13 + 1) + 3 * Math.sin(x / 5));
     const b = Math.round(5 + 4 * Math.sin(x / 9 + 3) + 2 * Math.sin(x / 4));
-    hillColumn(x, horizon + 18 - a, fields1, c1, patchy);
+    if (!city) hillColumn(x, horizon + 18 - a, fields1, c1, patchy);
     hillColumn(x, horizon + 26 - b, fields2, c2, patchy);
     tops.push([horizon + 18 - a, horizon + 26 - b]);
   }
   if (patches) {
-    snowPatches(x => tops[x][0], x => tops[x][1], horizon, patches + 0.08, snowOn(d1));
+    if (!city) snowPatches(x => tops[x][0], x => tops[x][1], horizon, patches + 0.08, snowOn(d1));
     snowPatches(x => tops[x][1], () => ground, horizon, patches, snowOn(d2));
   }
   if (dry > 0.05) {
     snowPatches(x => tops[x][1], () => ground, horizon, dry * 0.7, land(mix(d2, '#c9ad60', 0.7)), dryAt);
     snowPatches(x => tops[x][1], () => ground, horizon, dry * 0.4, land(mix(d2, '#a8884a', 0.75)), dryAt);
   }
-  drawHouse(t, day, horizon, ph, land, full || lying >= 0.3, snowOn);
+  if (!city) drawHouse(t, day, horizon, ph, land, roofSnow, snowOn);
   // Heat haze over the hills on a hot afternoon.
   const hazy = (k.hot && k.afternoon && ph === 'day' && !k.raining && !still) || q.has('heatshimmer');
   if (hazy) shimmer(t, horizon);
   const sway = k.windy ? Math.round(Math.sin(t * 6)) : 0;
-  const tx = 14, ty = horizon + 12;
+  // In the city there's no far hill to stand on: the tree stands on the lawn, its foot at the ground.
+  const tx = 14, ty = horizon + (city ? 18 : 12);
   const bark = night ? '#2a1d14' : '#6b4a2b';
   ctx.fillStyle = bark; ctx.fillRect(tx + treeUp(3, 4), ty + treeUp(-4, 12), treeUp(6, 4) - treeUp(3, 4), 12 - treeUp(-4, 12));
+  // Its foot, with a root flare either side (drawn again over a puddle, the first of which reaches it).
+  const trunk = [tx + treeUp(3, 4), treeUp(6, 4) - treeUp(3, 4)];
+  const treeFoot = () => { ctx.fillStyle = bark; ctx.fillRect(trunk[0], ground - 2, trunk[1], 2); ctx.fillRect(trunk[0] - 1, ground - 1, trunk[1] + 2, 1); };
+  if (city) treeFoot();
   const [, density] = TREE(day);
   for (const p of BRANCHES) {
     const x = tx + p.x + (p.sway ? sway : 0), y = ty + p.y;
@@ -481,7 +520,7 @@ function draw(t) {
   // Spring flowers, under the snow if there is any: none under a full cover, none where a patch lies.
   if (!full) {
     const snowAt = (x, y) => patches && meltAt(x, y - horizon) < patches;
-    drawFlowers(day, land, dg, snowAt);
+    drawFlowers(day, land, dg, snowAt, city ? [trunk[0] - 1, trunk[0] + trunk[1]] : null);
     drawSunflowers(t, day, land, dg, snowAt);
   }
   if (patches) snowPatches(() => ground, () => H, horizon, patches, snowOn(dg));
@@ -528,6 +567,7 @@ function draw(t) {
       if (Math.sin(t * 0.9 + i * 2.1) > 0.2) { ctx.fillStyle = night ? '#a9bde0' : '#ffffff'; ctx.fillRect(x + 2 + ((i * 5) % (w - 4)), ground - 2, 1, 1); }
     });
   }
+  if (city && (k.puddles || k.ice)) treeFoot();
   drawDragonflies(t, dt, day, ph);
   drawRobins(t, dt, day, ph);
   drawButterflies(t, dt, day, ph);
@@ -563,11 +603,11 @@ function draw(t) {
 
 // Wildflowers (single pixels on short stems, here and there along the lawn's edge) and dandelions.
 // All through land(), so frost whitens them and they darken after sundown; snowAt(x, y) is lying snow.
-function drawFlowers(day, land, dg, snowAt) {
+function drawFlowers(day, land, dg, snowAt, trunk) {
   const stem = land(mix(dg, '#2f6b2a', 0.45)), put = (c, x, y) => { if (!snowAt(x, y)) { ctx.fillStyle = c; ctx.fillRect(x, y, 1, 1); } };
   const n = blooming(day);
   if (n > 0.02) for (let x = 1; x < W - 1; x++) {
-    if (hash(x, 71) > 0.34 * n || PUDDLES.some(([px, w]) => x >= px - 1 && x <= px + w)) continue;
+    if (hash(x, 71) > 0.34 * n || PUDDLES.some(([px, w]) => x >= px - 1 && x <= px + w) || (trunk && x >= trunk[0] && x <= trunk[1])) continue;
     const h = 1 + Math.floor(hash(x, 73) * 3);
     for (let j = 1; j < h; j++) put(stem, x, ground - j);
     put(land(FLOWER_COLS[Math.floor(hash(x, 72) * FLOWER_COLS.length)]), x, ground - h);
@@ -695,16 +735,87 @@ function drawHouse(t, day, horizon, ph, land, snowy, snowOn) {
     ctx.fillStyle = ch === 'r' && j === 3 && snowy ? shade(HOUSE_COLS.r, ph) : col[ch];
     ctx.fillRect(HOUSE_X + i, y0 + j, 1, 1);
   }));
+  smoke(t, day, ph, HOUSE_X + 5, y0 - 1);
+}
+
+/** Smoke (or steam) rising from (x0, y0) in winter or on any cold day, leaning with the wind. */
+function smoke(t, day, ph, x0, y0, fade = 0) {
   const s = Math.max(wintry(day), k.cold ? 0.6 : 0);
   if (s < 0.05) return;
   const n = Math.ceil(6 * s), tt = still ? 3 : t, lean = 0.5 + Math.min(20, k.wind) * 0.35;
   ctx.fillStyle = ph === 'night' ? '#5d6580' : ph === 'day' ? '#aab3bd' : '#b3a9b0';
   for (let i = 0; i < n; i++) {
     const p = (tt * 0.18 + i / n) % 1, size = p < 0.3 ? 1 : 2;
-    ctx.globalAlpha = 0.9 * (1 - p);
-    ctx.fillRect(Math.round(HOUSE_X + 5 + p * p * lean * 8 + Math.sin(tt * 1.3 + i * 2) * p * 1.2), Math.round(y0 - 1 - p * 16), size, size);
+    ctx.globalAlpha = 0.9 * (1 - p) * (1 - fade);
+    ctx.fillRect(Math.round(x0 + p * p * lean * 8 + Math.sin(tt * 1.3 + i * 2) * p * 1.2), Math.round(y0 - p * 16), size, size);
   }
   ctx.globalAlpha = 1;
+}
+
+// The city across the river: downtown on the far bank, hazed toward the horizon colour (hz) and more so in
+// fog; after dark a dark silhouette with lit windows here and there, the Gulf Tower's crown glowing in the
+// temperature's colour and the light reflected in the river. Snow on the roofs after a snowfall (roofSnow);
+// the bank, like the far hill it replaces, takes the land's colours and keeps its snow longest.
+function drawCity(t, day, horizon, ph, hz, land, roofSnow, snowOn, patches, d1) {
+  const bank = horizon + 11, night = ph === 'night', lit = night || ph === 'dusk';
+  const fog = k.fog ? 0.75 : 0, h = Math.min(0.92, 0.38 + fog);
+  const glow = new Map(); // column -> colour of the light the river reflects there
+  const snow = night ? mix(snowOn('#ffffff'), '#0a1024', 0.35) : snowOn('#ffffff');
+  for (const [name, dx] of SKYLINE) {
+    const b = TOWERS[name], top = bank - b.rows.length, roof = [];
+    b.rows.forEach((row, j) => [...row].forEach((ch, i) => {
+      if (ch === '.') return;
+      const x = SKYLINE_X + dx + i, y = top + j, first = !roof[i];
+      roof[i] = true;
+      let c = b.col;
+      if (ch === 'b') c = mix(c, '#000000', 0.25);
+      else if (ch === 'g' && i % 2) c = mix(c, '#9fb6cc', 0.35);
+      else if (ch === 'm') c = '#6b6b6b';
+      const snowy = roofSnow && first && ch !== 'p' && ch !== 'm';
+      if (snowy) c = snow;
+      // At night the towers are a dark silhouette just off the sky colour, not lost in it.
+      c = night ? mix(snowy ? c : mix(shade(c, ph), '#0a1024', 0.55), hz, h * 0.35) : mix(snowy ? c : shade(c, ph), hz, h);
+      if (lit && !snowy) {
+        if (ch === 'p') { c = mix(beacon(k.temp), hz, fog * 0.6); glow.set(x, c); }
+        else if (ch === 'm') { if (j === 0 && Math.sin(t * 3) > 0) c = '#ff3a3a'; }
+        else if (j > 2 && i % 2 === 1 && j % 2 === 0 && hash(x * 3, y * 7) < 0.3 * (night ? 1 : 0.5)) {
+          c = mix(hash(x, y) < 0.5 ? '#ffd27a' : '#fff0c0', hz, fog + 0.15);
+          if (!glow.has(x)) glow.set(x, '#ffd27a');
+        }
+      }
+      ctx.fillStyle = c; ctx.fillRect(x, y, 1, 1);
+    }));
+  }
+  smoke(t, day, ph, STEAM_X, bank - TOWERS.low1.rows.length - 1, fog * 0.6);
+  // The far bank.
+  ctx.fillStyle = mix(land(mix(d1, '#5f7a4a', 0.5)), hz, 0.4); ctx.fillRect(0, bank, W, 2);
+  if (patches) snowPatches(() => bank, () => bank + 2, horizon, patches + 0.08, mix(snowOn(d1), hz, 0.4));
+  // The river, on down behind the near hill.
+  const y0 = bank + 2, [bx, bw] = BRIDGE, deck = y0 + 1;
+  ctx.fillStyle = mix(shade('#4d7f9a', ph), hz, 0.35); ctx.fillRect(0, y0, W, ground - y0);
+  if (lit) {
+    for (let x = bx + 1; x < bx + bw; x += 3) glow.set(x, '#ffe7a0');
+    const tt = Math.floor((still ? 0 : t) * 3);
+    for (const [x, c] of glow) for (let y = y0 + 1; y < y0 + 10; y++) {
+      if (hash(x, y + tt) < 0.45) { ctx.fillStyle = mix(c, hz, Math.min(1, 0.45 + (y - y0) * 0.06 + fog * 0.4)); ctx.fillRect(x, y, 1, 1); }
+    }
+  } else {
+    ctx.fillStyle = mix(shade('#a9cfe0', ph), hz, 0.3);
+    for (let i = 0; i < 14; i++) ctx.fillRect(Math.floor((hash(i, 9) * W + t * 2) % W), y0 + 1 + (i % 7), 2, 1);
+  }
+  // The yellow suspension bridge: two towers, the cables slung between them, deck lights after dark.
+  const col = mix(shade('#f2c230', ph), hz, 0.25 + fog * 0.6);
+  ctx.fillStyle = col; ctx.fillRect(bx, deck, bw, 1);
+  if (lit) { ctx.fillStyle = mix('#ffe7a0', hz, fog * 0.6); for (let x = bx + 1; x < bx + bw; x += 3) ctx.fillRect(x, deck, 1, 1); ctx.fillStyle = col; }
+  const t1 = bx + Math.round(bw * 0.25), t2 = bx + Math.round(bw * 0.75);
+  for (const x of [t1, t2]) ctx.fillRect(x, deck - 5, 1, 6);
+  for (let x = bx; x < bx + bw; x++) {
+    let cy;
+    if (x < t1) cy = deck - 5 + Math.round(((t1 - x) / (t1 - bx)) * 4);
+    else if (x > t2) cy = deck - 5 + Math.round(((x - t2) / (bx + bw - t2)) * 4);
+    else { const u = (x - t1) / (t2 - t1); cy = deck - 5 + Math.round(16 * u * (1 - u)); }
+    if (cy < deck) ctx.fillRect(x, cy, 1, 1);
+  }
 }
 
 // The snowman: whole while the snow's fresh, slumping as it melts, then a lump with a hat and a carrot.
