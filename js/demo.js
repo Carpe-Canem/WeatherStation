@@ -120,6 +120,22 @@ export async function daily(_cfg, days = 30) {
   return out;
 }
 
+// The next 24 hours, shaped like nws.hours().
+export async function hours() {
+  const first = Math.ceil(Date.now() / HOUR) * HOUR - HOUR, out = [];
+  for (let t = first; t < first + 24 * HOUR; t += HOUR) {
+    const ds = dayStart(t), h = (t - ds) / HOUR, p = dayParams(ds);
+    const wet = p.rainy && h >= p.rainStart - 1 && h <= p.rainStart + p.rainDur;
+    const day = h >= 7 && h < 18;
+    out.push({
+      t, temp: sample(t).temp, pop: wet ? 70 : 10,
+      icon: wet ? 'rain' : !day ? 'moon' : p.windBase > 6 ? 'partly' : 'sun',
+      phrase: wet ? 'Rain' : !day ? 'Clear' : p.windBase > 6 ? 'Partly cloudy' : 'Sunny',
+    });
+  }
+  return out;
+}
+
 export async function forecast() {
   const now = Date.now(), out = [];
   for (let i = 0; i < 5; i++) {

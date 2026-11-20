@@ -1,6 +1,7 @@
 import { makeUnits, UNIT_CHOICES, fixed } from './units.js';
 import * as wu from './wu.js';
 import * as demo from './demo.js';
+import * as nws from './nws.js';
 import { lineChart, sparkline } from './charts.js';
 import { sortable, arrange, isDragging } from './reorder.js';
 import { conditions, PREVIEWS } from './conditions.js';
@@ -41,11 +42,12 @@ if (linked && settings.link !== `${linked.stationId}|${linked.apiKey}`) {
 }
 const shareUrl = () => `${location.origin}${location.pathname}?station=${encodeURIComponent(settings.stationId)}&key=${encodeURIComponent(settings.apiKey)}`;
 
-const DATA_KEYS = ['current', 'today', 'hourly', 'daily', 'forecast', 'sky'];
-const emptyData = () => ({ current: null, today: [], hourly: [], daily: [], forecast: [], sky: null });
+const DATA_KEYS = ['current', 'today', 'hourly', 'daily', 'forecast', 'hours', 'sky'];
+// hours: the hourly forecast ahead (hourly is the station's own readings, looking back).
+const emptyData = () => ({ current: null, today: [], hourly: [], daily: [], forecast: [], hours: [], sky: null });
 const state = {
   view: 'now', range: 'today', ...emptyData(),
-  error: null, loading: false, lastCurrent: 0, lastFull: 0, lastForecast: 0, lastSky: 0,
+  error: null, loading: false, lastCurrent: 0, lastFull: 0, lastForecast: 0, lastHours: 0, lastSky: 0,
 };
 
 // ---------- appearance and the world behind it ----------
@@ -77,6 +79,7 @@ const units = () => makeUnits(settings.units);
 // ---------- formatting ----------
 
 const timeShort = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const hourLabel = t => new Date(t).toLocaleTimeString([], { hour: 'numeric' });
 function ago(t) {
   const m = Math.round((Date.now() - t) / MIN);
   if (m < 1) return 'just now';
@@ -112,8 +115,9 @@ function forecastIcon(code) {
   else if ([26, 27, 28].includes(code)) k = 'cloud';
   else if ([29, 30].includes(code)) k = 'partly';
   else if ([31, 33].includes(code)) k = 'moon';
-  return `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg>`;
+  return iconSvg(k);
 }
+const iconSvg = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k] || ICONS.sun}</svg>`;
 
 function errorText(e) {
   switch (e?.kind) {
@@ -213,6 +217,11 @@ function refresh(full = true) {
         state.forecast = await src.forecast(cfg, c.lat, c.lon).catch(() => state.forecast);
         state.lastForecast = Date.now();
       }
+      // Hourly forecast from weather.gov (US only): Weather Underground keys don't include one.
+      if (c?.lat != null && Date.now() - state.lastHours > 30 * MIN) {
+        state.hours = await (demoRun ? demo : nws).hours(c.lat, c.lon).catch(() => state.hours);
+        state.lastHours = Date.now();
+      }
       // Sky cover and drizzle from the nearest official observation; the station can't see either.
       if (c?.lat != null && src.sky && Date.now() - state.lastSky > 10 * MIN) {
         state.sky = await src.sky(cfg, c.lat, c.lon).catch(() => state.sky);
@@ -232,7 +241,7 @@ function refresh(full = true) {
 }
 
 function switchSource() {
-  Object.assign(state, emptyData(), { error: null, lastCurrent: 0, lastFull: 0, lastForecast: 0 });
+  Object.assign(state, emptyData(), { error: null, lastCurrent: 0, lastFull: 0, lastForecast: 0, lastHours: 0 });
   render();
   refresh(true);
 }
@@ -344,16 +353,27 @@ function renderNow() {
   const note = insight(c, u);
 
   const fdays = state.forecast.filter(d => !d.past).slice(0, 5);
-  const fc = fdays.length ? `
+  // The hourly row starts with the hour we're in (showing the station's own temperature, so it matches the
+  // big number above); it swipes sideways through the next day.
+  const hrs = state.hours.filter(h => h.t + HOUR > Date.now()).slice(0, 24);
+  const hourRow = hrs.length ? `
+      <div class="fhours" aria-label="Hourly forecast">${hrs.map((h, i) => `
+        <div class="fhour" title="${esc(h.phrase)}">
+          <div class="fht">${i === 0 ? 'Now' : esc(hourLabel(h.t))}</div>
+          <div class="fhv"><span class="ficon" role="img" aria-label="${esc(h.phrase)}">${iconSvg(h.icon)}</span><span class="fhtemp">${u.fmt('temp', i === 0 ? c.temp ?? h.temp : h.temp)}</span></div>
+        </div>`).join('')}
+      </div>` : '';
+  const fc = fdays.length || hrs.length ? `
     <div class="card forecast" aria-label="Forecast">${fdays.map(d => `
       <div class="fday" title="${esc(d.phrase)}">
         <div class="dow">${esc(d.dow)}</div>
         <div class="ficon" role="img" aria-label="${esc(d.phrase)}">${forecastIcon(d.icon)}</div>
         <div class="fhl"><span class="fhi">${u.fmt('temp', d.hi ?? (d.dow === 'Today' ? hi?.v : null))}</span> <span class="flo">${u.fmt('temp', d.lo)}</span></div>
         <div class="fpop">${d.pop != null ? `${d.pop}% rain` : ''}</div>
-      </div>`).join('')}
+      </div>`).join('')}${hourRow}
     </div>` : '';
 
+  const scrolled = el.querySelector('.fhours')?.scrollLeft || 0; // keep the hourly row where it was swiped to
   el.innerHTML = `
     <div class="hero">
       <div class="hero-temp">${u.num('temp', c.temp)}<span class="deg">${u.label('temp')}</span></div>
@@ -362,6 +382,29 @@ function renderNow() {
     </div>
     <div class="tiles">${arrange(tiles, settings.layout.now).map(t => t.html).join('')}</div>
     ${fc}`;
+  const row = el.querySelector('.fhours');
+  if (row) { row.scrollLeft = scrolled; fadeHours(row); }
+}
+
+// The hourly row fades out on the right while there are more hours to swipe to.
+const fadeHours = row => row.classList.toggle('more', row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
+
+// Mouse drag scrolls the hourly row sideways (touch and trackpads scroll it natively).
+function hourDrag(view) {
+  view.addEventListener('scroll', e => { if (e.target.classList?.contains('fhours')) fadeHours(e.target); }, true);
+  view.addEventListener('pointerdown', e => {
+    const row = e.pointerType === 'mouse' && e.button === 0 && e.target.closest('.fhours');
+    if (!row) return;
+    const x0 = e.clientX, s0 = row.scrollLeft;
+    row.style.scrollSnapType = 'none'; // snapping on every move would make the drag stutter
+    const move = ev => { row.scrollLeft = s0 - (ev.clientX - x0); };
+    const up = () => {
+      removeEventListener('pointermove', move); removeEventListener('pointerup', up);
+      row.style.scrollSnapType = '';
+    };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', up);
+  });
 }
 
 const CHARTS = [
@@ -614,6 +657,7 @@ window.addEventListener('resize', () => {
 
 if (!isDemo()) Object.assign(state, read(CACHE_KEY) || {});
 sortable($('#view-now'), { item: '.tile', onDrop: ids => saveOrder('now', ids) });
+hourDrag($('#view-now'));
 sortable($('#view-trends'), { item: '.chart-card', handle: 'header', onDrop: ids => saveOrder('trends', ids) });
 addEventListener('pointerup', () => setTimeout(() => { if (renderPending) render(); }));
 
