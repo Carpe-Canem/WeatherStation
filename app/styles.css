@@ -183,6 +183,19 @@ h2::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .fday .fhi { font-size: 16px; font-weight: 800; }
 .fday .flo { font-size: 14px; color: var(--ink2); }
 .fday .fpop { font-size: 11px; color: var(--ink2); }
+/* Hourly forecast: one row under the days, swiped sideways. */
+.fhours { grid-column: 1 / -1; display: flex; margin: 4px 6px 0; padding-top: 5px; border-top: 1px solid var(--border);
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
+  touch-action: pan-x pan-y; user-select: none; -webkit-user-select: none; cursor: grab; }
+.fhours::-webkit-scrollbar { display: none; }
+.fhours.more { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); }
+.fhour { flex: 0 0 54px; display: grid; justify-items: center; scroll-snap-align: start; }
+.fhour .fht { font-size: 11px; line-height: 14px; color: var(--ink2); white-space: nowrap; }
+.fhour .fhv { display: flex; align-items: center; gap: 3px; height: 18px; }
+.fhour .ficon { display: flex; color: var(--ink2); }
+.fhour .ficon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.fhour .ficon .sun { stroke: var(--accent); }
+.fhour .fhtemp { font-size: 13px; font-weight: 800; white-space: nowrap; }
 /* Now fits on one screen: only enough room below for the tab bar, so the lawn and dogs show without scrolling. */
 body:has(#view-now:not([hidden])) main { padding-bottom: calc(env(safe-area-inset-bottom) + 70px); }
 
