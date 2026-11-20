@@ -21,13 +21,15 @@ const write = (k, v) => {
 
 const saved = read(SETTINGS_KEY) || {};
 const settings = {
-  stationId: '', apiKey: '', demo: true, layout: {}, dogs: true, preview: 'live', loc: null, ...saved,
+  stationId: '', apiKey: '', demo: true, layout: {}, dogs: true, scene: 'city', preview: 'live', loc: null, ...saved,
   units: { temp: 'F', wind: 'mph', pressure: 'inHg', rain: 'in', ...(saved.units || {}) },
 };
 settings.preview = 'live'; // the weather preview is only for this visit; never saved
 // Debug: ?preview=night (or any id in PREVIEWS) starts this visit with that preview.
 const askedPreview = new URLSearchParams(location.search).get('preview');
 if (PREVIEWS.some(([id]) => id === askedPreview)) settings.preview = askedPreview;
+// Debug: ?scene=country or ?scene=city shows that backdrop for this visit without saving it.
+const askedScene = ['city', 'country'].find(s => s === new URLSearchParams(location.search).get('scene'));
 
 // A share link (?station=ID&key=KEY) connects this device to that station without typing anything.
 // It is applied once per link, so choosing demo data later sticks. The parameters stay in the address so
@@ -69,7 +71,7 @@ function updateWorld() {
   // Keep the browser and status bar in step with the page.
   const bg = getComputedStyle(document.documentElement).getPropertyValue('--page').trim();
   document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', bg));
-  setSky(k);
+  setSky({ ...k, scene: askedScene || settings.scene });
   setDogs(settings.dogs ? k : null);
 }
 
@@ -520,6 +522,12 @@ function renderSettings() {
       <label for="unit-${kind}">${names[kind]}</label>
       <select id="unit-${kind}" data-unit="${kind}">${opts.map(o => `<option${o === settings.units[kind] ? ' selected' : ''}>${o}</option>`).join('')}</select>`).join('')}
     </div>
+    <h2>Backdrop</h2>
+    <div class="card form">
+      <div class="seg" role="group" aria-label="Backdrop">${[['city', 'City'], ['country', 'Country']].map(([v, label]) =>
+        `<button type="button" data-scene="${v}" aria-pressed="${settings.scene === v}">${label}</button>`).join('')}</div>
+      <p class="help">City looks across the river at the Pittsburgh skyline. Country is the hills with the little house.</p>
+    </div>
     <h2>Ziggy, Frank and Minnie</h2>
     <div class="card form">
       <div class="seg" role="group" aria-label="Dogs">${[[true, 'Show the dogs'], [false, 'Hide them']].map(([v, label]) =>
@@ -604,6 +612,12 @@ document.addEventListener('click', e => {
     write(SETTINGS_KEY, settings);
     updateWorld();
     document.querySelectorAll('[data-dogs]').forEach(b => b.setAttribute('aria-pressed', b === t));
+  }
+  else if (t.dataset.scene) {
+    settings.scene = t.dataset.scene;
+    write(SETTINGS_KEY, settings);
+    updateWorld();
+    document.querySelectorAll('[data-scene]').forEach(b => b.setAttribute('aria-pressed', b === t));
   }
   else if (t.id === 'resetLayout') {
     settings.layout = {};

@@ -3,6 +3,7 @@
 // Settings shows the newest entry's number as the running version.
 // (There was no version 4.)
 export const CHANGES = [
+  [36, '2026-11-20', 'The backyard now looks across the river at Pittsburgh: downtown on the far bank, the yellow bridge, lit windows after dark and the Gulf Tower\'s top glowing in the temperature\'s colour. To go back to the hills and the little house, choose Country under Backdrop in Settings.'],
   [35, '2026-11-20', 'An hourly forecast sits under the daily one: the next 24 hours with a sky icon and temperature each. Swipe it sideways to see later hours. It comes from the National Weather Service, so it shows for stations in the US.'],
   [34, '2026-11-20', 'Tonight is gone from the forecast: as soon as it is past midnight, the row starts with the new day as Today.'],
   [33, '2026-11-20', 'The forecast row follows the calendar: after midnight it starts with Tonight (showing just the low), then Today, instead of calling the night before Today and filling in the station\'s high.'],
